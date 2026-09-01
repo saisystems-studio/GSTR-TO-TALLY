@@ -1,0 +1,98 @@
+;; ============================================================================
+;; gst_tally_refresh_rate.tdl
+;;
+;; EXPERIMENTAL -- not yet tested against a live Tally instance.
+;;
+;; Purpose: after this app imports/alters a "GST Purchase X%" / "GST Sales X%"
+;; ledger via XML, TallyPrime 7.1 stores and USES the correct GST rate (voucher
+;; tax calculation is correct) but never recomputes the "GST Rate" summary
+;; field shown on the Ledger Alteration screen -- it stays at 0% until a human
+;; opens the ledger and re-enters the same rate interactively.
+;;
+;; This script defines one custom Action, callable remotely over the same
+;; HTTP-XML gateway (port 9000) this app already uses, that re-plays that exact
+;; interactive path -- Ledger Alter -> GST Rate & Related Details (History) ->
+;; the row -> GST Rate Details -> IGST/CGST/SGST -> Accept, Accept -- so Tally
+;; itself commits the value the same way it does for a human, but triggered by
+;; a request instead of a keyboard.
+;;
+;; HOW TO LOAD (do this on a test company/Tally instance first):
+;;   1. In Tally: F1 (Help) > TDL & Add-On > F4 (Manage Local TDLs)
+;;   2. Set "Load selected TDL files on startup" to Yes
+;;   3. Under "List of TDL files", browse to this file, add it
+;;   4. Restart Tally (or F5 to reload TDL if your version supports hot-reload)
+;;   5. Check for load errors: F1 (Help) > TDL & Add-On -- any syntax problem
+;;      in this file will be reported here BEFORE it can affect other data.
+;;
+;; HOW TO CALL (from the app, or manually via curl/Postman to test):
+;;   POST to http://127.0.0.1:9000 with body:
+;;     <ENVELOPE>
+;;      <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
+;;      <BODY><EXPORTDATA><REQUESTDESC>
+;;       <REPORTNAME>RefreshGSTRateReport</REPORTNAME>
+;;       <STATICVARIABLES>
+;;        <SVCURRENTCOMPANY>SRI MAHALAKSHMI TRADERS,</SVCURRENTCOMPANY>
+;;        <LEDGERNAMEPARAM>GST Purchase 12%</LEDGERNAMEPARAM>
+;;        <IGSTRATEPARAM>12</IGSTRATEPARAM>
+;;       </STATICVARIABLES>
+;;      </REQUESTDESC></EXPORTDATA></BODY>
+;;     </ENVELOPE>
+;;
+;; This is a first draft. TDL syntax errors are common on a first pass and can
+;; only be confirmed by Tally's own TDL loader -- test it on ONE ledger on a
+;; disposable company before relying on it, and report back the exact error
+;; message from F1 > TDL & Add-On if it fails to load.
+;; ============================================================================
+
+[System: Variable]
+    LedgerNameParam : "" ; Default only, overridden by the request's static variable
+    IGSTRateParam    : "0"
+
+[Report: RefreshGSTRateReport]
+    Form         : RefreshGSTRateForm
+
+[Form: RefreshGSTRateForm]
+    Part         : RefreshGSTRatePart
+    ; No visible UI is needed -- this report exists purely to be triggered as
+    ; an Export request so its Local variables are evaluated, which in turn
+    ; run the Alter action below.
+
+[Part: RefreshGSTRatePart]
+    Line         : RefreshGSTRateLine
+
+[Line: RefreshGSTRateLine]
+    Fields       : RefreshGSTRateField
+
+[Field: RefreshGSTRateField]
+    Set as       : $$RefreshOneLedgerRate
+
+;; ----------------------------------------------------------------------------
+;; The actual work: open the named ledger in Alter mode and simulate the exact
+;; keystroke path already proven to work by hand -- More Details -> GST Rate &
+;; Related Details (History) -> the existing row -> GST Rate Details -> type
+;; IGST (CGST/SGST auto-follow at half in TallyPrime once IGST is entered) ->
+;; Accept out through both nested screens -> Accept the ledger itself.
+;;
+;; NOTE: The exact field-to-field navigation keys (Down/Enter/Tab counts)
+;; below are a best-effort mapping of the manual steps already confirmed
+;; working in this conversation. TDL's "Key" simulation is sequence-sensitive
+;; -- if Tally's screen layout differs even slightly (e.g. an extra confirm
+;; prompt), this will need adjusting after seeing the real behaviour once.
+;; ----------------------------------------------------------------------------
+[Function: RefreshOneLedgerRate]
+    01 : If               : $$IsEmpty:##LedgerNameParam
+    02 :     Return        : "No ledger name supplied"
+    10 : Alter             : Ledger : ##LedgerNameParam
+    20 : Key               : Key_I                       ;; I: More Details
+    21 : Key               : Key_Enter                    ;; select GST Rate & Related Details (History)
+    22 : Key               : Key_Enter                    ;; open the existing dated row
+    23 : Key               : Key_Enter                    ;; keep "Specify Details Here", opens GST Rate Details popup
+    24 : Key               : ##IGSTRateParam               ;; type the IGST rate
+    25 : Key               : Key_Enter
+    26 : Key               : Key_Enter                    ;; CGST auto/keep
+    27 : Key               : Key_Enter                    ;; SGST auto/keep
+    28 : Key               : Key_Enter                    ;; Cess fields, default through
+    29 : Key               : Key_Enter
+    30 : Key               : Key_CtrlA                    ;; accept the History table
+    31 : Key               : Key_CtrlA                    ;; accept the Ledger itself
+    99 : Return             : "Done"

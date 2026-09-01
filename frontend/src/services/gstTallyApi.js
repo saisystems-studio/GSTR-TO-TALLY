@@ -1,0 +1,36 @@
+import { authenticatedFetch } from './authApi'
+import { buildQueryUrl } from '../utils/url'
+
+const BASE = import.meta.env.VITE_API_BASE_URL || '/api/gst-tally'
+async function request(path, options={}){try{const response=await authenticatedFetch(`${BASE}${path}`,options);let body={};try{body=await response.json()}catch{}if(!response.ok){const error=new Error(body.detail||body.message||'Request failed');Object.assign(error,body);throw error}return body}catch(error){if(error.name==='AbortError')throw new Error('Tally did not complete the request within the allowed time. Check Tally for an open dialog before retrying.');throw error}}
+export function uploadGSTFile({returnType,returnPeriod,file}){const data=new FormData();data.append('return_type',returnType);data.append('return_period',returnPeriod);data.append('file',file);return request('/import/',{method:'POST',body:data})}
+export function previewGSTFile({returnType,file,sheetName}){const data=new FormData();data.append('return_type',returnType);data.append('file',file);if(sheetName)data.append('sheet_name',sheetName);return request('/preview/',{method:'POST',body:data})}
+export const getImportBatch=id=>request(`/batches/${id}/`)
+export const getImportHistory=()=>request('/batches/')
+export const fetchBatchParties=(id,{force=false,retryIncomplete=false,gstins=[]}={})=>request(`/import-batches/${id}/fetch-parties/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force,retry_incomplete:retryIncomplete,gstins})})
+export const getBatchParties=id=>request(`/import-batches/${id}/parties/`)
+export const completeBatchParty=(id,gstin,details)=>request(`/import-batches/${id}/parties/${encodeURIComponent(gstin)}/`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(details)})
+export const prepareTallyMasters=(id,tallyCompanyName='')=>request(`/import-batches/${id}/tally-masters/prepare/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tally_company_name:tallyCompanyName})})
+export const resolveBatchCompany=(id,companyGstin='')=>request(`/import-batches/${id}/company/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company_gstin:companyGstin})})
+export const previewTallyVouchers=id=>request(`/import-batches/${id}/tally-vouchers/preview/`)
+export const applySuggestedInvoiceValue=(id,partyGstin,invoiceNumber,invoiceDate)=>request(`/import-batches/${id}/tally-vouchers/correct/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'suggested',party_gstin:partyGstin,invoice_number:invoiceNumber,invoice_date:invoiceDate})})
+export const editInvoiceValueManually=(id,partyGstin,invoiceNumber,invoiceDate,roundOff)=>request(`/import-batches/${id}/tally-vouchers/correct/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'manual',party_gstin:partyGstin,invoice_number:invoiceNumber,invoice_date:invoiceDate,round_off:roundOff})})
+export const saveVoucherCorrection=(id,partyGstin,invoiceNumber,invoiceDate,field,value,correctionSource='manual')=>request(`/import-batches/${id}/tally-vouchers/correct/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'save_correction',party_gstin:partyGstin,invoice_number:invoiceNumber,invoice_date:invoiceDate,field,value,correction_source:correctionSource})})
+export const getTallyConnection=()=>request('/tally/connection/')
+export const verifyTallyLicense=id=>request(`/import-batches/${id}/tally-license/verify/`,{method:'POST'})
+const importRequests = new Map()
+export function importToTally(id) {
+  if (importRequests.has(id)) return importRequests.get(id)
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 25000)
+  const pending = request(`/import-batches/${id}/tally-import/`, { method: 'POST', signal: controller.signal })
+    .finally(() => { clearTimeout(timer); importRequests.delete(id) })
+  importRequests.set(id, pending)
+  return pending
+}
+export async function lookupGSTIN(gstin){const response=await authenticatedFetch(`/api/gst/lookup/${encodeURIComponent(gstin)}/`);let body={};try{body=await response.json()}catch{}if(!response.ok){const error=new Error(body.message||'Unable to fetch GST details.');Object.assign(error,body);throw error}return body}
+export async function getGSTLookupStatus(){const response=await authenticatedFetch('/api/gst/lookup/status/');let body={};try{body=await response.json()}catch{}if(!response.ok)throw new Error(body.message||'Unable to check GST lookup status.');return body}
+async function sandboxRequest(path,{params={},...options}={}){const url=buildQueryUrl(`/api/gst/sandbox/${path}/`,params);const response=await authenticatedFetch(url,options);let body={};try{body=await response.json()}catch{}if(!response.ok){const error=new Error(body.message||'Sandbox GST request failed.');Object.assign(error,body);throw error}return body}
+export const getSandboxStatus=batchId=>sandboxRequest('status',{params:{batch_id:batchId}})
+export const authenticateSandbox=batchId=>sandboxRequest('authenticate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch_id:batchId})})
+export const requestSandboxOTP=(batchId,username)=>sandboxRequest('request-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch_id:batchId,username})})
+export const verifySandboxOTP=(batchId,username,otp)=>sandboxRequest('verify-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch_id:batchId,username,otp})})
