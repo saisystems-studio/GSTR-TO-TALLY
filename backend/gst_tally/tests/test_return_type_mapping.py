@@ -297,7 +297,7 @@ class _FakeInvoiceQuery:
 
 
 class ExemptSourceNormalizationTests(SimpleTestCase):
-    def test_source_exempt_row_normalizes_to_gst_exempted_without_tax_allocations(self):
+    def test_source_exempt_row_normalizes_to_gst_purchase_exempted_without_tax_allocations(self):
         row = SimpleNamespace(
             id=1,
             invoice_no="EX-1",
@@ -340,8 +340,8 @@ class ExemptSourceNormalizationTests(SimpleTestCase):
         allocation = voucher["rate_allocations"][0]
 
         self.assertEqual(voucher["voucher_type"], "Purchase")
-        self.assertEqual(allocation["account_ledger"], "GST Exempted")
-        self.assertEqual(allocation["sales_ledger"], "GST Exempted")
+        self.assertEqual(allocation["account_ledger"], "GST Purchase Exempted")
+        self.assertEqual(allocation["sales_ledger"], "GST Purchase Exempted")
         self.assertEqual(allocation["gst_rate"], "0")
         self.assertEqual(allocation["taxability"], "Exempt")
         self.assertEqual(allocation["taxable_value"], "5000.00")

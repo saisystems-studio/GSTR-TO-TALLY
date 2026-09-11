@@ -64,6 +64,9 @@ class Gstr2bPurchaseAccountingInvoiceTests(TestCase):
             "pincode": "",
             "registration_type": "Regular",
             "place_of_supply": "Tamil Nadu",
+            # A name-only fallback (no legal_name/address/pincode) is never
+            # genuine Sandbox taxpayer enrichment, no matter how readable it is.
+            "party_details_complete": False,
         })
 
     def test_voucher_is_purchase_type_with_both_rate_buckets(self):
@@ -128,16 +131,16 @@ class Gstr2bPurchaseAccountingInvoiceTests(TestCase):
         self.assertEqual(amounts["Input SGST 9%"], "-536.40")
         self.assertEqual(amounts["RE SUSTAINABILITY IWM SOLUTIONS LIMITED"], "7232.30")
         self.assertEqual(sum(Decimal(v) for v in amounts.values()), Decimal("0.00"))
-        taxable = {entry.findtext("LEDGERNAME"): entry for entry in entries if entry.find("RATEOFINVOICETAX") is not None}
-        self.assertEqual(taxable["GST Purchase 5%"].findtext("RATEOFINVOICETAX"), "5")
-        self.assertEqual(taxable["GST Purchase 5%"].findtext("BASICRATEOFINVOICETAX"), "5")
-        self.assertEqual(taxable["GST Purchase 18%"].findtext("RATEOFINVOICETAX"), "18")
-        first_taxable_tags = [child.tag for child in taxable["GST Purchase 5%"]]
-        self.assertLess(first_taxable_tags.index("RATEOFINVOICETAX"), first_taxable_tags.index("LEDGERNAME"))
-        self.assertLess(first_taxable_tags.index("BASICRATEOFINVOICETAX"), first_taxable_tags.index("LEDGERNAME"))
+        # No voucher-level GST rate override: RATEOFINVOICETAX/BASICRATEOFINVOICETAX/
+        # RATE/GSTTAXRATE/RATEDETAILS.LIST must be absent so Tally resolves the
+        # GST rate purely from the named ledger's own master ("As per Ledger",
+        # not "As per Voucher").
+        taxable = {entry.findtext("LEDGERNAME"): entry for entry in entries if entry.find("GSTASSESSABLEVALUE") is not None}
+        for name in ("GST Purchase 5%", "GST Purchase 18%"):
+            for tag in ("RATE", "RATEOFINVOICETAX", "BASICRATEOFINVOICETAX", "GSTTAXRATE"):
+                self.assertIsNone(taxable[name].find(tag))
+            self.assertEqual(taxable[name].findall("RATEDETAILS.LIST"), [])
         self.assertEqual(taxable["GST Purchase 5%"].findtext("VATEXPAMOUNT"), "-190.00")
-        self.assertEqual({row.findtext("GSTRATEDUTYHEAD"): row.findtext("GSTRATE") for row in taxable["GST Purchase 5%"].findall("RATEDETAILS.LIST")},
-                         {"CGST": "2.5", "SGST/UTGST": "2.5", "IGST": "5"})
 
     def test_json_payload_mirrors_xml_and_omits_sales_only_buyer_fields(self):
         voucher = {**self.build(), "rounding_adjustment": "0"}
@@ -153,9 +156,11 @@ class Gstr2bPurchaseAccountingInvoiceTests(TestCase):
         entries = {row["ledgername"]: row["amount"] for row in payload["ledgerentries"]}
         self.assertEqual(entries["GST Purchase 5%"], "-190.00")
         self.assertEqual(entries["Input CGST 9%"], "-536.40")
-        taxable = {row["ledgername"]: row for row in payload["ledgerentries"] if "rateofinvoicetax" in row}
-        self.assertEqual(taxable["GST Purchase 5%"]["rateofinvoicetax"][-1], "5")
-        self.assertEqual(taxable["GST Purchase 18%"]["rateofinvoicetax"][-1], "18")
+        # No voucher-level GST rate override on the JSON path either.
+        for row in payload["ledgerentries"]:
+            self.assertNotIn("rateofinvoicetax", row)
+            self.assertNotIn("basicrateofinvoicetax", row)
+            self.assertNotIn("ratedetails", row)
 
     def test_interstate_supplier_uses_input_igst_only(self):
         interstate_gstin = "29ABFFA3666C1ZQ"

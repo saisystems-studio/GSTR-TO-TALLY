@@ -16,7 +16,8 @@ from gst_tally.models import GSTImportBatch, GSTInvoice, GSTParty, TallyVoucherM
 from gst_tally.tally.response_parser import TallyResponse, parse_import_response
 from gst_tally.tally.service import (_step6_outcome, _tally_error_detail, _write_failure_reason,
                                      correct_invoice_value, import_batch, save_voucher_correction,
-                                     prepare_master_results, voucher_preview)
+                                     prepare_master_results, voucher_preview, WRITE_ACCEPTED_PENDING_STATUS,
+                                     WRITE_ACCEPTED_PENDING_DB_STATUS)
 
 
 GSTIN = "33AAACB2894G1ZJ"
@@ -138,6 +139,36 @@ class Step6OutcomeTests(SimpleTestCase):
         counts = {"imported": 5, "already_imported": 2, "validation_failed": 0, "tally_failed": 0,
                   "unknown": 0, "skipped": 0, "not_attempted": 0, "waiting_for_tally_period": 0, "invalid": 0}
         self.assertEqual(_step6_outcome(counts)[0], "Import Successful")
+
+    def test_all_write_accepted_pending_is_never_import_failed(self):
+        """The exact bug this fix targets: Tally accepted every voucher write
+        (CREATED>0) but query-back couldn't confirm any of them yet -- this
+        must read as WRITE_ACCEPTED_PENDING_STATUS, never "Import Failed"
+        (which would wrongly invite a resend and risk duplicate vouchers)."""
+        counts = {"imported": 0, "already_imported": 0, "validation_failed": 0, "tally_failed": 0,
+                  "verification_failed": 0, "verification_pending": 46,
+                  "unknown": 0, "skipped": 0, "not_attempted": 0, "waiting_for_tally_period": 0, "invalid": 0}
+        import_status, message = _step6_outcome(counts)
+        self.assertEqual(import_status, WRITE_ACCEPTED_PENDING_STATUS)
+        self.assertNotEqual(import_status, "Import Failed")
+        self.assertIn("accepted by Tally but not yet confirmed", message)
+        self.assertIn("Do not resend", message)
+
+    def test_write_accepted_pending_mixed_with_a_real_failure_is_partial_import(self):
+        counts = {"imported": 0, "already_imported": 0, "validation_failed": 0, "tally_failed": 1,
+                  "verification_failed": 0, "verification_pending": 45,
+                  "unknown": 0, "skipped": 0, "not_attempted": 0, "waiting_for_tally_period": 0, "invalid": 0}
+        import_status, _ = _step6_outcome(counts)
+        self.assertEqual(import_status, "Partial Import")
+        self.assertNotEqual(import_status, "Import Failed")
+        self.assertNotEqual(import_status, WRITE_ACCEPTED_PENDING_STATUS)
+
+    def test_write_accepted_pending_mixed_with_a_real_success_is_partial_import(self):
+        counts = {"imported": 1, "already_imported": 0, "validation_failed": 0, "tally_failed": 0,
+                  "verification_failed": 0, "verification_pending": 45,
+                  "unknown": 0, "skipped": 0, "not_attempted": 0, "waiting_for_tally_period": 0, "invalid": 0}
+        import_status, _ = _step6_outcome(counts)
+        self.assertEqual(import_status, "Partial Import")
 
 
 def collection_with(vouchers):
@@ -273,7 +304,8 @@ class Step6IntegrationTests(TestCase):
         key_source = "|".join([COMPANY_GSTIN.casefold(), "sales", "pur-1", "2025-04-01", GSTIN.casefold()])
         import hashlib
         stale_key = hashlib.sha256(key_source.encode()).hexdigest()
-        TallyVoucherMapping.objects.create(idempotency_key=stale_key, batch=self.batch, invoice_id=1,
+        invoice = self.batch.invoices.get(invoice_no="PUR-1")
+        TallyVoucherMapping.objects.create(idempotency_key=stale_key, batch=self.batch, invoice=invoice,
                                            source_invoice_number="PUR-1", party_gstin=GSTIN,
                                            tally_company=COMPANY, tally_voucher_identifier="999",
                                            import_status="Imported")
@@ -300,6 +332,64 @@ class Step6IntegrationTests(TestCase):
         self.assertEqual(row["status"], "Already Imported")
         self.assertEqual(result["summary"]["already_imported"], 1)
         self.assertFalse(any(b"<REPORTNAME>Vouchers</REPORTNAME>" in p for p in client.payloads if b"Import Data" in p))
+
+    # Tally accepted the write (CREATED=1, LASTVCHID=47) but the query-back
+    # collection genuinely comes back empty -- the exact live symptom this
+    # fix targets.
+    WRITE_ACCEPTED_RAW = (b'<ENVELOPE><BODY><DATA><IMPORTRESULT><CREATED>1</CREATED><ALTERED>0</ALTERED>'
+                          b'<ERRORS>0</ERRORS><EXCEPTIONS>0</EXCEPTIONS><LASTVCHID>47</LASTVCHID></IMPORTRESULT></DATA></BODY></ENVELOPE>')
+
+    def test_write_accepted_but_unconfirmed_is_pending_not_failed_and_is_never_resent(self):
+        """The critical regression this fix exists for: Tally already returned
+        CREATED=1/LASTVCHID=47, but the voucher collection/Day Book query-back
+        genuinely finds nothing (a read-after-write visibility lag). This must
+        be reported as WRITE_ACCEPTED_PENDING_STATUS -- never "Failed" -- and
+        a SUBSEQUENT import_batch call (e.g. the user clicking Retry Import)
+        must NEVER resend the voucher XML for it, even though the query-back
+        still can't find it on that second attempt either."""
+        first_client = ScriptedClient(live_vouchers=[], write_responses={"PUR-1": self.WRITE_ACCEPTED_RAW})
+
+        first_result = self.run_import(first_client)
+        first_row = next(r for r in first_result["results"] if r["invoice_no"] == "PUR-1")
+
+        self.assertEqual(first_row["status"], WRITE_ACCEPTED_PENDING_STATUS)
+        self.assertNotEqual(first_row["status"], "Tally Failed")
+        self.assertEqual(first_result["summary"]["verification_pending"], 1)
+        self.assertEqual(first_result["summary"]["failed"], 0)
+        self.assertEqual(first_result["import_status"], WRITE_ACCEPTED_PENDING_STATUS)
+        mapping = TallyVoucherMapping.objects.get(source_invoice_number="PUR-1")
+        self.assertEqual(mapping.import_status, WRITE_ACCEPTED_PENDING_DB_STATUS)
+        self.assertEqual(mapping.tally_voucher_identifier, "47")
+
+        # Retry Import: Tally still hasn't made the voucher visible to a query.
+        second_client = ScriptedClient(live_vouchers=[], write_responses={"PUR-1": self.WRITE_ACCEPTED_RAW})
+        second_result = self.run_import(second_client)
+        second_row = next(r for r in second_result["results"] if r["invoice_no"] == "PUR-1")
+
+        self.assertEqual(second_row["status"], WRITE_ACCEPTED_PENDING_STATUS)
+        # The one non-negotiable guarantee: no fresh voucher write was sent.
+        self.assertFalse(any(b"<REPORTNAME>Vouchers</REPORTNAME>" in p for p in second_client.payloads if b"Import Data" in p))
+
+    def test_write_accepted_pending_voucher_is_confirmed_once_tally_shows_it(self):
+        """A later Retry Import, once the voucher genuinely becomes visible in
+        the batch's own preflight query, confirms it (via the existing
+        reconciliation path, unchanged by this fix) -- still without ever
+        resending the voucher XML."""
+        first_client = ScriptedClient(live_vouchers=[], write_responses={"PUR-1": self.WRITE_ACCEPTED_RAW})
+        self.run_import(first_client)
+
+        second_client = ScriptedClient(live_vouchers=[{"number": "47", "type": "Purchase", "reference": "PUR-1",
+                                                       "party": "Source Supplier", "master_id": "47",
+                                                       "taxable_allocations": [{"ledger": "GST Purchase 18%", "amount": "-1000", "gst_rate": "18"},
+                                                                                {"ledger": "Input CGST 9%", "amount": "-90", "gst_rate": "9"},
+                                                                                {"ledger": "Input SGST 9%", "amount": "-90", "gst_rate": "9"}]}])
+        second_result = self.run_import(second_client)
+        second_row = next(r for r in second_result["results"] if r["invoice_no"] == "PUR-1")
+
+        self.assertEqual(second_row["status"], "Already Imported")
+        self.assertFalse(any(b"<REPORTNAME>Vouchers</REPORTNAME>" in p for p in second_client.payloads if b"Import Data" in p))
+        mapping = TallyVoucherMapping.objects.get(source_invoice_number="PUR-1")
+        self.assertEqual(mapping.import_status, "Imported")
 
     def test_existing_voucher_must_pass_source_verification_before_already_imported(self):
         client = ScriptedClient(live_vouchers=[{"number": "5", "type": "Purchase", "reference": "PUR-1",
@@ -639,6 +729,11 @@ class Step4MasterSummaryTests(TestCase):
                     "gst_applicable": "Applicable", "taxability": "Taxable", "supply_type": "Goods",
                     "gst_rate": "18", "outer_gst_rate": "18", "gst_rate_details_popup_exists": True,
                     "set_alter_gst_rate_details": "Yes", "gst_rates": {"CGST": "9", "SGST/UTGST": "9", "IGST": "18"}}
+        if name == "Cess Zero":
+            return {"exists": True, "name": name, "parent": "Purchase Accounts",
+                    "gst_applicable": "Applicable", "taxability": "Taxable", "supply_type": "Goods",
+                    "gst_rate": "0", "outer_gst_rate": "0", "gst_rate_details_popup_exists": True,
+                    "set_alter_gst_rate_details": "Yes", "gst_rates": {"CGST": "0", "SGST/UTGST": "0", "IGST": "0"}}
         if name.startswith("Input CGST"):
             return {"exists": True, "name": name, "parent": "Duties & Taxes",
                     "duty_type": "GST", "tax_type": "CGST", "gst_rate": "9",
@@ -881,13 +976,17 @@ class SandboxVoucherEligibilityTests(TestCase):
         self.assertEqual(preview["summary"]["eligible"], 1)
         self.assertEqual(preview["summary"]["skipped"], 0)
 
-    def test_sandbox_name_fallback_is_ready_with_a_warning_not_skipped(self):
+    def test_sandbox_name_fallback_is_ready_not_needs_attention(self):
         # No local GSTParty row and no source-file party name either -- the
-        # sandbox lookup could not enrich a name at all. GSTIN is still a
-        # valid fallback identity (state/country/registration type are all
-        # separately derivable) -- this must be Ready with an informational
-        # warning, never Skipped. Sandbox lookup is optional enrichment, not
-        # a voucher eligibility gate.
+        # sandbox lookup could not enrich a name at all, so the GSTIN itself
+        # is the only usable identity. Sandbox taxpayer lookup is optional
+        # enrichment, not an eligibility gate (see party_eligibility): a
+        # valid GSTIN is still a usable fallback party identity, so the
+        # voucher proceeds as Ready with GSTIN Fallback, carrying the
+        # sandbox-unavailable note as a non-blocking warning_code/warning_message
+        # only -- Sandbox status is unrelated to voucher validation and must
+        # never appear inside `reason` (see validators.py's rate-based
+        # validation fix and this same principle for Sandbox status).
         other_gstin = "33ABCDE1234F1Z5"
         GSTInvoice.objects.create(
             import_batch=self.batch, invoice_no="2", invoice_date=date(2025, 4, 2),
@@ -900,12 +999,13 @@ class SandboxVoucherEligibilityTests(TestCase):
             preview = voucher_preview(self.batch)
 
         row = next(v for v in preview["vouchers"] if v["invoice_number"] == "2")
-        self.assertTrue(row["status"].startswith("Ready"), row["reason"])
-        self.assertTrue(row["import_eligible"])
-        self.assertEqual(row["warning_code"], "SANDBOX_PARTY_DETAILS_UNAVAILABLE")
-        self.assertIn("Sandbox taxpayer details are unavailable", row["reason"])
-        self.assertEqual(row["skip_reason_code"], "")
         self.assertEqual(row["status"], "Ready with GSTIN Fallback")
+        self.assertTrue(row["import_eligible"])
+        self.assertEqual(row["reason"], "GSTIN is used as the party ledger name")
+        self.assertNotIn("Sandbox", row["reason"])
+        self.assertEqual(row["warning_code"], "SANDBOX_PARTY_DETAILS_UNAVAILABLE")
+        self.assertIn("Sandbox taxpayer lookup has not been attempted yet", row["warning_message"])
+        self.assertEqual(row["skip_reason_code"], "")
 
     def test_invalid_gstin_is_still_a_real_blocking_case(self):
         # Sandbox being optional enrichment never excuses a genuinely invalid GSTIN.
@@ -924,9 +1024,11 @@ class SandboxVoucherEligibilityTests(TestCase):
         self.assertNotEqual(row["status"], "Ready")
         self.assertTrue(row["reason"])
 
-    def test_sandbox_fallback_does_not_mask_a_genuine_total_mismatch(self):
-        # A real invoice-total mismatch must still be Needs Attention even
-        # when the party itself is a valid sandbox/GSTIN fallback.
+    def test_sandbox_unavailability_no_longer_masks_a_genuine_total_mismatch(self):
+        # A missing Sandbox profile is optional-enrichment-only and no longer
+        # blocks the voucher (see party_eligibility) -- so a genuine amount
+        # mismatch surfaces on its own merits as Review Required, instead of
+        # being hidden behind an artificial party-eligibility block.
         other_gstin = "33ABCDE1234F1Z5"
         GSTInvoice.objects.create(
             import_batch=self.batch, invoice_no="4", invoice_date=date(2025, 4, 4),
@@ -941,3 +1043,4 @@ class SandboxVoucherEligibilityTests(TestCase):
         row = next(v for v in preview["vouchers"] if v["invoice_number"] == "4")
         self.assertEqual(row["status"], "Review Required")
         self.assertFalse(row["import_eligible"])
+        self.assertEqual(row["skip_reason_code"], "")

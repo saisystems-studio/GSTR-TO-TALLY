@@ -7,15 +7,26 @@ import {
   companyVerificationStatus,
   confirmMastersReadiness,
   detectFileFormat,
+  defaultFileFormat,
+  fileFormatExtension,
   filterMastersRows,
+  isTallyConnectionReady,
   licenseVerificationStatus,
   licenseStatusFromPayload,
   mastersSummaryFromRows,
   nextWorkflowStep,
   normalizeCompanyVerificationResult,
   readyBreakdownText,
+  shouldAutoStartImport,
   tallyConnectionErrorMessage,
 } from './workflowState.js'
+
+test('return types have one fixed upload format', () => {
+  assert.equal(defaultFileFormat('GSTR1'), 'JSON')
+  assert.equal(defaultFileFormat('GSTR2A'), 'CSV')
+  assert.equal(defaultFileFormat('GSTR2B'), 'Excel')
+  assert.equal(fileFormatExtension('Excel'), '.xlsx')
+})
 
 test('detectFileFormat returns the supported upload format from the file name', () => {
   assert.equal(detectFileFormat('gstr1.xlsx'), 'Excel')
@@ -151,9 +162,85 @@ test('normalizeCompanyVerificationResult preserves backend financial year error'
 test('licenseVerificationStatus shows verified only from backend license verification', () => {
   assert.deepEqual(licenseVerificationStatus(null), { label: 'Pending', tone: 'pending' })
   assert.deepEqual(licenseVerificationStatus({ license_verified: true }), { label: 'Verified', tone: 'success' })
-  assert.deepEqual(licenseVerificationStatus({ license_error: 'LICENSE_IDENTITY_MISMATCH' }), { label: 'Blocked', tone: 'error' })
+  // A code with no specific branch (e.g. the legacy, no-longer-emitted
+  // LICENSE_IDENTITY_MISMATCH) still gets a generic-but-real title/detail,
+  // never a silent blank state.
+  assert.deepEqual(licenseVerificationStatus({ license_error: 'LICENSE_IDENTITY_MISMATCH' }), {
+    label: 'Blocked', tone: 'error', title: 'License Verification Failed', detail: 'Contact your administrator.',
+  })
   assert.deepEqual(licenseVerificationStatus({ license_available: false }), { label: 'Unavailable', tone: 'error' })
-  assert.deepEqual(licenseVerificationStatus({ license_verified: false }), { label: 'Blocked', tone: 'error' })
+  assert.deepEqual(licenseVerificationStatus({ license_verified: false }), {
+    label: 'Blocked', tone: 'error', title: 'License Verification Failed', detail: 'Contact your administrator.',
+  })
+})
+
+test('licenseVerificationStatus explains concrete backend license failures', () => {
+  assert.deepEqual(licenseVerificationStatus({
+    license_available: false,
+    license_error: 'TALLY_LICENSE_DATA_UNAVAILABLE',
+    license_error_detail: 'SerialNumber returned an empty value.',
+  }), {
+    label: 'Unavailable',
+    tone: 'error',
+    title: 'Unable to Read Tally License',
+    detail: 'SerialNumber returned an empty value.',
+  })
+  assert.deepEqual(licenseVerificationStatus({ license_error: 'TALLY_NOT_CONNECTED' }), {
+    label: 'Unavailable',
+    tone: 'error',
+    title: 'Unable to Connect to Tally',
+    detail: 'Check your Tally connection and try again.',
+  })
+  assert.deepEqual(licenseVerificationStatus({ license_error: 'PRODUCT_LICENSE_NOT_CONFIGURED' }), {
+    label: 'Blocked',
+    tone: 'error',
+    title: 'License Setup Required',
+    detail: 'Registered Tally Serial has not been configured.',
+  })
+  assert.deepEqual(licenseVerificationStatus({
+    license_error: 'TALLY_SERIAL_MISMATCH',
+    registered_tally_serial: '735149529',
+    detected_tally_serial: '845621773',
+  }), {
+    label: 'Blocked',
+    tone: 'error',
+    title: 'Tally License Mismatch',
+    detail: 'Registered Serial: 735149529 | Detected Serial: 845621773',
+  })
+  assert.deepEqual(licenseVerificationStatus({
+    license_error: 'COMPANY_GSTIN_MISMATCH',
+    licensed_gstin: '33AFHPM6103Q1Z8',
+    current_company_gstin: '33ZZZZZ0000Z1Z9',
+  }), {
+    label: 'Blocked',
+    tone: 'error',
+    title: 'Company GSTIN Mismatch',
+    detail: 'Licensed GSTIN: 33AFHPM6103Q1Z8 | Current GSTIN: 33ZZZZZ0000Z1Z9',
+  })
+  assert.deepEqual(licenseVerificationStatus({ license_error: 'LICENSE_EXPIRED', expiry_date: '2026-01-15' }), {
+    label: 'Blocked',
+    tone: 'error',
+    title: 'License Expired',
+    detail: 'Expired on: 15-01-2026',
+  })
+  assert.deepEqual(licenseVerificationStatus({ license_error: 'LICENSE_SUSPENDED' }), {
+    label: 'Blocked',
+    tone: 'error',
+    title: 'License Suspended',
+    detail: 'Contact your administrator to reactivate this license.',
+  })
+  assert.deepEqual(licenseVerificationStatus({ license_error: 'LICENSE_REVOKED' }), {
+    label: 'Blocked',
+    tone: 'error',
+    title: 'License Revoked',
+    detail: 'Contact your administrator.',
+  })
+  assert.deepEqual(licenseVerificationStatus({ license_error: 'DEVICE_LIMIT_REACHED', registered_device: 'OFFICE-PC-01' }), {
+    label: 'Blocked',
+    tone: 'error',
+    title: 'Device Approval Required',
+    detail: 'Registered Device: OFFICE-PC-01',
+  })
 })
 
 test('confirmMastersReadiness requires verified company and verified license before proceeding', () => {
@@ -270,6 +357,55 @@ test('buildPrepState marks Tally connection failed and keeps later checks pendin
   })
 })
 
+test('XML fallback is a valid Tally connection for Step 3', () => {
+  const connection = {
+    requested_transport: 'JSON',
+    actual_transport: 'XML',
+    json_connected: false,
+    xml_connected: true,
+    fallback_used: true,
+    read_connected: true,
+    tcp_connected: true,
+    http_connected: true,
+    odbc_connected: true,
+    company_open: true,
+    can_import: true,
+    company_name: 'KUMARAN SUPER MARKET',
+    company_gstin: '33EUJPM9654K1ZX',
+  }
+
+  assert.equal(isTallyConnectionReady(connection), true)
+  assert.deepEqual(buildPrepState('parties', {
+    batch: { id: 7 },
+    parties: { parties: [{ tally_ready: true }] },
+    connectionResult: connection,
+    verifyStage: 'company',
+  }), {
+    parties: 'done',
+    fetch: 'done',
+    connection: 'done',
+    company: 'active',
+    license: 'pending',
+    masters: 'pending',
+  })
+})
+
+test('Step 3 rejects a connection that cannot import', () => {
+  assert.equal(isTallyConnectionReady({
+    read_connected: true,
+    company_open: true,
+    can_import: false,
+  }), false)
+})
+
+test('Step 3 rejects a connection when no Tally company is open', () => {
+  assert.equal(isTallyConnectionReady({
+    read_connected: true,
+    company_open: false,
+    can_import: true,
+  }), false)
+})
+
 test('tallyConnectionErrorMessage names the configured Tally endpoint concisely', () => {
   assert.equal(tallyConnectionErrorMessage({
     host: '127.0.0.1',
@@ -278,4 +414,40 @@ test('tallyConnectionErrorMessage names the configured Tally endpoint concisely'
     message: 'Tally refused the TCP connection',
   }), 'Unable to connect to Tally on 127.0.0.1:9000.')
   assert.equal(tallyConnectionErrorMessage({ message: 'ODBC driver missing' }), 'ODBC driver missing')
+})
+
+test('shouldAutoStartImport allows Step 6 auto-start only once after readiness', () => {
+  assert.equal(shouldAutoStartImport({
+    autoStartImport: true,
+    pageReady: true,
+    alreadyTriggered: false,
+    importBusy: false,
+    hasJob: false,
+    hasResult: false,
+  }), true)
+
+  assert.equal(shouldAutoStartImport({
+    autoStartImport: true,
+    pageReady: true,
+    alreadyTriggered: true,
+    importBusy: false,
+    hasJob: false,
+    hasResult: false,
+  }), false)
+  assert.equal(shouldAutoStartImport({
+    autoStartImport: true,
+    pageReady: true,
+    alreadyTriggered: false,
+    importBusy: false,
+    hasJob: true,
+    hasResult: false,
+  }), false)
+  assert.equal(shouldAutoStartImport({
+    autoStartImport: false,
+    pageReady: true,
+    alreadyTriggered: false,
+    importBusy: false,
+    hasJob: false,
+    hasResult: false,
+  }), false)
 })

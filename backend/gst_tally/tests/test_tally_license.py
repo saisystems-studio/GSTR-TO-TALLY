@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from gst_tally.models import GSTImportBatch, TallyCompanyMapping
+from gst_tally.models import CompanyDetails, GSTImportBatch, TallyCompanyMapping
 from gst_tally.services.tally_license import verify_batch_license
 
 COMPANY_GSTIN = "33AFHPM6103Q1Z8"
@@ -106,3 +106,63 @@ class TallyLicenseBindingTests(TestCase):
         self.assertEqual(result["edition"], "Gold")
         self.assertEqual(result["license_administrator"], "admin@example.com")
         self.assertFalse(TallyCompanyMapping.objects.filter(gstin=COMPANY_GSTIN).exists())
+
+
+class LicenseCompanyGstinResolutionTests(TestCase):
+    """Regression coverage for the COMPANY_GSTIN_REQUIRED bug: license
+    verification must find the GSTIN Company Verification already resolved,
+    without the frontend ever having to send it again."""
+
+    def test_falls_back_to_the_companydetails_record_verified_for_this_batch(self):
+        # batch.company_gstin is blank -- the only thing this batch knows is
+        # which Tally company name Company Verification succeeded against
+        # (exactly what services/company_verification.py persists).
+        batch = GSTImportBatch.objects.create(
+            file_name="gstr2b.xlsx", file_type="EXCEL", gst_return_type="GSTR2B",
+            company_gstin="", company_details={"selected_tally_company": "Vasantham Agencies"})
+        CompanyDetails.objects.create(company_name="VASANTHAM AGENCIES", gstin="33AJJPD4912E1ZQ",
+                                      company_verified=True, tally_connected=True)
+        with patch("gst_tally.services.tally_license.read_tally_license", return_value=READING):
+            result = verify_batch_license(batch)
+        self.assertTrue(result["license_verified"])
+        self.assertEqual(result["license_error"], "")
+        self.assertTrue(TallyCompanyMapping.objects.filter(gstin="33AJJPD4912E1ZQ").exists())
+
+    def test_falls_back_to_batch_company_details_gstin(self):
+        batch = GSTImportBatch.objects.create(
+            file_name="gstr2b.xlsx", file_type="EXCEL", gst_return_type="GSTR2B",
+            company_gstin="", company_details={"gstin": "33ajjpd4912e1zq"})
+        with patch("gst_tally.services.tally_license.read_tally_license", return_value=READING):
+            result = verify_batch_license(batch)
+        self.assertTrue(result["license_verified"])
+        self.assertTrue(TallyCompanyMapping.objects.filter(gstin="33AJJPD4912E1ZQ").exists())
+
+    def test_still_reports_company_gstin_required_when_genuinely_unavailable_everywhere(self):
+        batch = GSTImportBatch.objects.create(
+            file_name="gstr2b.xlsx", file_type="EXCEL", gst_return_type="GSTR2B", company_gstin="")
+        with patch("gst_tally.services.tally_license.read_tally_license", return_value=READING):
+            result = verify_batch_license(batch)
+        self.assertFalse(result["license_verified"])
+        self.assertEqual(result["license_error"], "COMPANY_GSTIN_REQUIRED")
+
+    def test_exact_reported_scenario_is_verified_true(self):
+        # company_verified/tally_connected/company_details_saved were all
+        # already true from Company Verification; license_available/serial/
+        # edition/tss/administrator are all present -- only the GSTIN lookup
+        # was broken.
+        batch = GSTImportBatch.objects.create(
+            file_name="gstr2b.xlsx", file_type="EXCEL", gst_return_type="GSTR2B",
+            company_gstin="", company_details={"selected_tally_company": "Vasantham Agencies"})
+        CompanyDetails.objects.create(company_name="VASANTHAM AGENCIES", gstin="33AJJPD4912E1ZQ",
+                                      company_verified=True, tally_connected=True)
+        reading = {"license_available": True, "serial_number": "735149529", "edition": "Gold",
+                   "tally_software_services": "Active", "license_administrator": "saiassociatesmdu19@gmail.com",
+                   "license_verified": None, "license_error": None, "message": ""}
+        with patch("gst_tally.services.tally_license.read_tally_license", return_value=reading):
+            result = verify_batch_license(batch)
+        self.assertEqual(result["license_verified"], True)
+        self.assertEqual(result["license_error"], "")
+        self.assertEqual(result["serial_number"], "735149529")
+        self.assertEqual(result["edition"], "Gold")
+        self.assertEqual(result["tally_software_services"], "Active")
+        self.assertEqual(result["license_administrator"], "saiassociatesmdu19@gmail.com")

@@ -1,0 +1,73 @@
+:root{
+  --teo-blue:#2f6fed;
+  --teo-green:#16a34a;
+  --teo-red:#c62828;
+  --teo-text-dark:#1a2340;
+  --teo-text-mid:#5b6478;
+}
+.teo-stage *{box-sizing:border-box;}
+.teo-stage{width:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--teo-text-dark);}
+.teo-panel{position:relative;width:100%;background:#fff;border-radius:20px;box-shadow:0 20px 60px rgba(30,60,140,.12);padding:34px 34px 0;}
+
+.teo-status-row{display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:16px;color:var(--teo-blue);}
+.teo-theme-green .teo-status-row{color:var(--teo-green);}
+.teo-dot-pulse{width:9px;height:9px;border-radius:50%;background:var(--teo-green);animation:teoPulseDot 1.6s infinite;}
+@keyframes teoPulseDot{0%{box-shadow:0 0 0 0 rgba(22,163,74,.55);}70%{box-shadow:0 0 0 9px rgba(22,163,74,0);}100%{box-shadow:0 0 0 0 rgba(22,163,74,0);}}
+.teo-subtitle{text-align:center;color:var(--teo-text-mid);font-size:14px;margin-top:6px;}
+
+.teo-orbit-wrap{position:relative;width:100%;margin-top:6px;}
+.teo-orbit-wrap svg{display:block;width:100%;height:auto;}
+
+.teo-n-title{font-weight:700;font-size:19px;color:var(--teo-text-dark);line-height:1.2;}
+.teo-n-title.teo-n-title-red{color:var(--teo-red);}
+.teo-n-sub{font-size:16px;margin-top:4px;font-weight:600;}
+.teo-n-sub.teo-green{color:var(--teo-green);}
+.teo-n-sub.teo-gray{color:var(--teo-text-mid);font-weight:500;}
+.teo-n-sub.teo-blue{color:var(--teo-blue);}
+.teo-n-sub.teo-red{color:var(--teo-red);}
+.teo-right{text-align:right;}
+.teo-left{text-align:left;}
+.teo-center{text-align:center;}
+
+.teo-valdots{display:flex;gap:6px;margin-top:8px;}
+.teo-right .teo-valdots{justify-content:flex-end;}
+.teo-center .teo-valdots{justify-content:center;}
+.teo-valdots span{width:7px;height:7px;border-radius:50%;background:var(--teo-blue);opacity:.3;animation:teoDotFade 1.2s infinite;}
+.teo-valdots span:nth-child(2){animation-delay:.2s;}
+.teo-valdots span:nth-child(3){animation-delay:.4s;}
+@keyframes teoDotFade{0%,100%{opacity:.25;}50%{opacity:1;}}
+
+.teo-cubegrp{animation:teoFloaty 3s ease-in-out infinite;transform-box:fill-box;transform-origin:center;}
+@keyframes teoFloaty{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}
+.teo-glowc{animation:teoBreathe 2.4s ease-in-out infinite;transform-box:fill-box;transform-origin:center;}
+@keyframes teoBreathe{0%,100%{transform:scale(1);opacity:.85;}50%{transform:scale(1.1);opacity:1;}}
+.teo-pedestal-glow{animation:teoPedestalGlow 3s ease-in-out infinite;transform-box:fill-box;transform-origin:center;}
+@keyframes teoPedestalGlow{0%,100%{transform:scaleX(1);opacity:.22;}50%{transform:scaleX(1.15);opacity:.4;}}
+.teo-ring-neon{animation:teoNeonPulse 2.6s ease-in-out infinite;transform-box:fill-box;transform-origin:center;}
+@keyframes teoNeonPulse{0%,100%{opacity:.55;}50%{opacity:.85;}}
+.teo-node-neon-blur{animation:teoNodeNeonPulse 1.8s ease-in-out infinite;transform-box:fill-box;transform-origin:center;}
+@keyframes teoNodeNeonPulse{0%,100%{opacity:.3;transform:scale(1);}50%{opacity:.55;transform:scale(1.12);}}
+.teo-spin-slow{animation:teoSpin 40s linear infinite;transform-box:fill-box;transform-origin:center;}
+.teo-spin-slow-rev{animation:teoSpin 30s linear infinite reverse;transform-box:fill-box;transform-origin:center;}
+@keyframes teoSpin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+.teo-pulse-node{animation:teoPulseNode 2s ease-in-out infinite;transform-box:fill-box;transform-origin:center;}
+@keyframes teoPulseNode{0%,100%{opacity:.55;transform:scale(1);}50%{opacity:1;transform:scale(1.3);}}
+
+.teo-bottom-bar{border-top:1px solid #eef1f7;padding:22px 0 26px;display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap;}
+.teo-op-icon{width:46px;height:46px;border-radius:50%;background:var(--teo-blue);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.teo-theme-green .teo-op-icon{background:var(--teo-green);}
+.teo-op-icon svg{width:22px;height:22px;}
+.teo-op-text .teo-op-title{color:var(--teo-blue);font-size:13px;font-weight:700;letter-spacing:.3px;margin-bottom:2px;}
+.teo-theme-green .teo-op-text .teo-op-title{color:var(--teo-green);}
+.teo-op-text .teo-op-name{font-size:17px;font-weight:700;margin-bottom:6px;}
+.teo-op-text .teo-op-desc{font-size:14px;color:var(--teo-text-mid);max-width:360px;line-height:1.45;}
+.teo-meta{margin-left:auto;display:flex;gap:32px;flex-wrap:wrap;}
+.teo-col{display:flex;gap:10px;align-items:flex-start;}
+.teo-col svg{width:17px;height:17px;margin-top:2px;color:var(--teo-text-mid);flex-shrink:0;}
+.teo-m-title{font-size:13.5px;font-weight:700;color:var(--teo-text-dark);}
+.teo-m-sub{font-size:13.5px;color:var(--teo-text-mid);}
+
+@media (max-width:640px){
+  .teo-n-title{font-size:13px;}
+  .teo-n-sub{font-size:12px;}
+}

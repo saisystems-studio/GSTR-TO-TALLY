@@ -1,25 +1,23 @@
+function DataSource() {
+  return <div className="dt-source" aria-hidden="true"><span className="dt-fold"/><strong>DATA</strong><small>RECORDS</small></div>
+}
+
+function DataBlocks() {
+  return <div className="dt-stream" aria-hidden="true">{Array.from({ length: 10 }, (_, index) => <i key={index} style={{ '--particle': index }} />)}</div>
+}
+
+function ProcessingCore() {
+  return <div className="dt-core" aria-hidden="true"><span/><span/><span/></div>
+}
+
+function TableBuilder({ ready }) {
+  return <div className={`dt-table ${ready ? 'is-ready' : ''}`} aria-hidden="true">{Array.from({ length: 12 }, (_, index) => <i key={index} style={{ '--cell': index }} />)}{ready && <b>✓</b>}</div>
+}
+
 export default function DataTransferAnimation({ mode = 'source', ready = false }) {
-  const orbitDots = Array.from({ length: 5 }, (_, index) => index + 1)
-  const transferDots = Array.from({ length: 8 }, (_, index) => index + 1)
-  const cells = Array.from({ length: 9 }, (_, index) => index + 1)
-
-  return <div className={`data-transfer-animation scene-${mode} ${ready ? 'is-ready' : ''}`}>
-    <div className="source-box">
-      <span>DATA</span>
-    </div>
-
-    <div className="orbit-processor" aria-hidden="true">
-      {orbitDots.map(index => <span key={index} className={`orbit-dot dot-${index}`} />)}
-    </div>
-
-    <div className="transfer-dots" aria-hidden="true">
-      {transferDots.map(index => <span key={index} />)}
-    </div>
-
-    <div className="table-grid-3x3" aria-hidden="true">
-      {cells.map(index => <span key={index} />)}
-    </div>
-
-    {ready && <div className="transfer-ready-check" aria-hidden="true">✓</div>}
+  const copy = ready ? ['Ready to Display', 'Your preview is ready'] : mode === 'build' ? ['Preparing Table', 'Building the preview grid'] : mode === 'align' ? ['Structuring Records', 'Arranging fields and values'] : mode === 'flow' ? ['Processing Data', 'Reading and organizing records'] : ['Data Received', 'Preparing your data']
+  return <div className={`dt-transform scene-${mode} ${ready ? 'is-ready' : ''}`}>
+    <DataSource/><DataBlocks/><ProcessingCore/><span className="dt-output" aria-hidden="true"/><TableBuilder ready={ready}/>
+    <div className="dt-caption"><strong>{copy[0]}</strong><span>{copy[1]}</span></div>
   </div>
 }

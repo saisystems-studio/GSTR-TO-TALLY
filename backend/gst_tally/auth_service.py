@@ -1,15 +1,67 @@
 import hashlib
 import hmac
 import secrets
+from datetime import timedelta
 
 from django.conf import settings
+from django.core.mail import send_mail
 from django.utils import timezone
 
-from .models import DeviceActivation, License
+from .models import DeviceActivation, License, PasswordResetCode
 
 
 def secret_hash(value):
     return hmac.new(settings.SECRET_KEY.encode(), value.strip().encode(), hashlib.sha256).hexdigest()
+
+
+PASSWORD_RESET_CODE_TTL_MINUTES = 10
+PASSWORD_RESET_MAX_ATTEMPTS = 5
+
+
+def create_password_reset_code(user):
+    """Issues a fresh 6-digit code, invalidating any earlier unused ones for
+    this user so only the most recently requested code can ever succeed."""
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    PasswordResetCode.objects.filter(user=user, used_at__isnull=True).update(used_at=timezone.now())
+    PasswordResetCode.objects.create(
+        user=user,
+        code_hash=secret_hash(code),
+        expires_at=timezone.now() + timedelta(minutes=PASSWORD_RESET_CODE_TTL_MINUTES),
+    )
+    return code
+
+
+def send_password_reset_email(user, code):
+    send_mail(
+        subject="Your GSTR 2 Tally password reset code",
+        message=(
+            f"Your verification code is {code}.\n\n"
+            f"This code expires in {PASSWORD_RESET_CODE_TTL_MINUTES} minutes. "
+            "If you did not request a password reset, you can ignore this email."
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=True,
+    )
+
+
+def verify_and_consume_reset_code(user, raw_code):
+    """Checks the most recent unused code for this user, capping repeated
+    wrong guesses (PASSWORD_RESET_MAX_ATTEMPTS) so it can't be brute-forced,
+    and marks it used on success so it can never be replayed."""
+    raw_code = str(raw_code or "").strip()
+    if not raw_code:
+        return False
+    reset_code = PasswordResetCode.objects.filter(user=user, used_at__isnull=True).order_by("-created_at").first()
+    if not reset_code or reset_code.expires_at < timezone.now() or reset_code.attempts >= PASSWORD_RESET_MAX_ATTEMPTS:
+        return False
+    if not hmac.compare_digest(reset_code.code_hash, secret_hash(raw_code)):
+        reset_code.attempts += 1
+        reset_code.save(update_fields=["attempts"])
+        return False
+    reset_code.used_at = timezone.now()
+    reset_code.save(update_fields=["used_at"])
+    return True
 
 
 def validate_license(serial_number, email, raw_key, user=None, device_id=None):

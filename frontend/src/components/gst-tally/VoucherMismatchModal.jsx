@@ -1,127 +1,138 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
+import InvoiceLineItems from './InvoiceLineItems'
 import { saveVoucherCorrection } from '../../services/gstTallyApi'
+import { currencyPaise, invoiceTotals, formatPaise, decimalPaise } from '../../utils/invoiceTotals'
 
-const num = value => Number(value || 0)
-const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(num(value))
-const signedMoney = value => `${num(value) > 0 ? '+' : num(value) < 0 ? '-' : ''}${money(Math.abs(num(value)))}`
-const FIELD_OPTIONS = [
-  ['invoice_value', 'Invoice Value'], ['taxable_value', 'Taxable Value'], ['cgst', 'CGST'],
-  ['sgst', 'SGST'], ['igst', 'IGST'], ['cess', 'Cess'], ['round_off', 'Round Off'],
-]
-const ROW_FIELDS = { invoice_value: 'invoice_total', taxable_value: 'taxable_total', cgst: 'cgst', sgst: 'sgst', igst: 'igst', cess: 'cess', round_off: 'round_off' }
+const returnLabels = { GSTR1: 'GSTR-1', GSTR2A: 'GSTR-2A', GSTR2B: 'GSTR-2B' }
+const correctionOptions = [['invoice_value', 'Invoice Value'], ['taxable_value', 'Taxable Value'], ['cgst', 'CGST'], ['sgst', 'SGST'], ['igst', 'IGST'], ['cess', 'Cess'], ['round_off', 'Round Off']]
+const VIEW_STATUSES = ['ready', 'validated', 'correct', 'successfully corrected', 'no attention required', 'ready with warning', 'ready with gstin fallback']
+const FIX_STATUSES = ['review required', 'needs attention', 'mismatch', 'correction required', 'validation failed']
+
+function correctedTotals(row, originalTotals, correctionType, entered) {
+  const fieldMap = { invoice_value: 'invoice', taxable_value: 'component', cgst: 'component', sgst: 'component', igst: 'component', cess: 'component', round_off: 'roundOff' }
+  const correctionField = correctionType === 'taxable_value' ? 'taxable_total' : correctionType
+  const field = fieldMap[correctionType]
+  if (!field) return originalTotals
+
+  const original = field === 'component'
+    ? currencyPaise(row[correctionField] ?? '0') ?? 0n
+    : originalTotals[field]
+  const totals = { ...originalTotals }
+  const delta = entered - original
+  totals[field] += delta
+  totals.final = totals.component + totals.roundOff
+  totals.difference = totals.invoice - totals.component
+  totals.remaining = totals.invoice - totals.final
+  return totals
+}
+
+function determineInvoiceMode(status) {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (!normalized) return 'view'
+  if (VIEW_STATUSES.some(value => normalized === value || normalized.startsWith(value))) return 'view'
+  if (FIX_STATUSES.some(value => normalized === value || normalized.includes(value))) return 'fix'
+  return normalized.includes('review') || normalized.includes('attention') || normalized.includes('mismatch') || normalized.includes('correction') || normalized.includes('validation failed') ? 'fix' : 'view'
+}
 
 export default function VoucherMismatchModal({ row, batchId, onClose, onSaved }) {
-  const suggestedField = row.mismatch_analysis?.suggested_field || 'invoice_value'
-  const [field, setField] = useState(suggestedField)
-  const currentFor = selected => String(row[ROW_FIELDS[selected]] ?? '0.00')
-  const suggestionFor = selected => selected === suggestedField ? String(row.mismatch_analysis?.suggested_value || '') : selected === 'round_off' && Math.abs(num(row.difference)) <= 1 ? String(row.difference) : ''
-  const [value, setValue] = useState(currentFor(suggestedField))
+  const [value, setValue] = useState(String(row.round_off ?? '0.00'))
   const [source, setSource] = useState('manual')
-  const [saving, setSaving] = useState(false), [error, setError] = useState(''), [recalculated, setRecalculated] = useState(false)
-  const selectedSuggestion = suggestionFor(field)
-  const sourceMatched = Math.abs(num(row.difference)) <= 0.01
-  const after = useMemo(() => {
-    const values = { invoice: num(row.invoice_total), taxable: num(row.taxable_total), cgst: num(row.cgst), sgst: num(row.sgst), igst: num(row.igst), cess: num(row.cess), roundOff: num(row.round_off) }
-    const target = { invoice_value: 'invoice', taxable_value: 'taxable', cgst: 'cgst', sgst: 'sgst', igst: 'igst', cess: 'cess', round_off: 'roundOff' }[field]
-    values[target] = num(value)
-    const calculated = values.taxable + values.cgst + values.sgst + values.igst + values.cess + values.roundOff
-    const difference = values.invoice - calculated
-    const sourceTaxable = num(row.taxable_total)
-    const expectedTax = (row.rate_allocations || []).reduce((total, allocation) => {
-      const share = sourceTaxable ? num(allocation.taxable_value) / sourceTaxable : 0
-      return total + values.taxable * share * num(allocation.gst_rate) / 100
-    }, 0)
-    const tolerance = Math.max(0.02, Math.abs(expectedTax) * 0.0001)
-    const intra = row.transaction_type === 'INTRA-STATE'
-    const gstValid = intra
-      ? Math.abs(values.cgst - expectedTax / 2) <= tolerance && Math.abs(values.sgst - expectedTax / 2) <= tolerance && Math.abs(values.igst) <= 0.02
-      : Math.abs(values.cgst) <= 0.02 && Math.abs(values.sgst) <= 0.02 && Math.abs(values.igst - expectedTax) <= tolerance
-    return { ...values, calculated, difference, totalsMatch: Math.abs(difference) <= 0.01, gstValid }
-  }, [field, value, row])
-  const canSave = value !== '' && Number.isFinite(Number(value)) && after.totalsMatch && after.gstValid && (field !== 'round_off' || Math.abs(num(value)) <= 1)
-  const chooseField = event => { const next = event.target.value; setField(next); setValue(currentFor(next)); setSource('manual'); setError(''); setRecalculated(false) }
-  const applySuggestion = () => { if (selectedSuggestion !== '') { setValue(selectedSuggestion); setSource('suggested'); setRecalculated(true) } }
+  const [correctionType, setCorrectionType] = useState('round_off')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  // This is intentionally independent from the text input. Invalid draft text
+  // must never remove the last valid Tally Import Data snapshot.
+  const [tallyImportData, setTallyImportData] = useState(() => invoiceTotals(row))
+  const mode = determineInvoiceMode(row.status)
+  const readOnly = mode === 'view'
+  const before = invoiceTotals(row)
+  useEffect(() => { setTallyImportData(invoiceTotals(row)) }, [row])
+  useEffect(() => {
+    if (readOnly) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previous }
+  }, [readOnly])
+  const entered = currencyPaise(value)
+  const correctionField = correctionType === 'taxable_value' ? 'taxable_total' : correctionType
+  const correctionChanged = correctionType === 'round_off' ? entered : currencyPaise(value)
+  const after = tallyImportData
+  const validationError = entered === null ? 'Enter a valid amount with up to 2 decimal places.' : ''
+  const canSave = correctionChanged !== null && !saving && (correctionType !== 'round_off' || (after && after.remaining === 0n))
   const save = async () => {
     if (!canSave) return
     setSaving(true); setError('')
     try {
-      const result = await saveVoucherCorrection(batchId, row.party.gstin, row.invoice_number, row.invoice_date_iso, field, value, source)
-      onSaved?.(result); onClose()
-    } catch (err) { setError(err.message || 'Unable to save this correction.') }
+      const result = await saveVoucherCorrection(batchId, row.party.gstin, row.invoice_number, row.invoice_date_iso || row.invoice_date, correctionField, decimalPaise(correctionChanged), source)
+      onSaved?.(result)
+      onClose()
+    } catch (err) { setError(err.message || 'Unable to fix this invoice.') }
     finally { setSaving(false) }
   }
-  const validated = after.totalsMatch && after.gstValid
-  return <div className="mismatch-modal-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}><div className="mismatch-modal" role="dialog" aria-modal="true" aria-label="Invoice mismatch details">
-    <div className="mismatch-modal-header">
-      <div>
-        <h2>Invoice Mismatch Details</h2>
-        <p className="mismatch-modal-identity">Invoice #{row.invoice_number} · {row.party?.name}</p>
-        <p className="mismatch-modal-gstin">GSTIN: {row.party?.gstin}</p>
-      </div>
-      <button className="mismatch-modal-close" onClick={onClose} aria-label="Close">×</button>
-    </div>
-
-    <div className="mismatch-modal-body">
-      <div className="mismatch-summary-grid">
-        <div className="mismatch-metric"><span>Source Invoice Value</span><b>{money(row.source_invoice_value)}</b></div>
-        <div className="mismatch-metric"><span>Taxable Value</span><b>{money(row.taxable_total)}</b></div>
-        <div className="mismatch-metric"><span>CGST</span><b>{money(row.cgst)}</b></div>
-        <div className="mismatch-metric"><span>SGST</span><b>{money(row.sgst)}</b></div>
-        <div className="mismatch-metric"><span>IGST</span><b>{money(row.igst)}</b></div>
-        <div className="mismatch-metric"><span>Cess</span><b>{money(row.cess)}</b></div>
-        <div className="mismatch-metric"><span>Calculated Total</span><b>{money(row.component_total)}</b></div>
-        <div className={`mismatch-metric mismatch-metric-diff ${sourceMatched ? 'is-ok' : 'is-bad'}`}><span>Difference</span><b>{signedMoney(row.difference)}</b></div>
-      </div>
-
-      {!validated && <div className="mismatch-banner mismatch-banner-error">
-        <strong>⚠ Review Required</strong>
-        <span>The calculated invoice total does not match the source invoice value.</span>
-      </div>}
-
-      <section className="mismatch-suggestion">
-        <h3>Suggested Correction</h3>
-        {selectedSuggestion ? <>
-          <div className="mismatch-suggestion-values"><span>Current {FIELD_OPTIONS.find(x => x[0] === field)?.[1]}<b>{money(currentFor(field))}</b></span><span>Suggested Value<b>{money(selectedSuggestion)}</b></span></div>
-          <p>{row.mismatch_analysis?.reason}</p>
-          <button className="mismatch-apply-suggestion" onClick={applySuggestion}>Apply Suggested Value {money(selectedSuggestion)}</button>
-        </> : <p>No safe automatic correction was identified. Select the incorrect field below and enter the correct value.</p>}
-      </section>
-
-      <section className="mismatch-correction">
-        <h3>Correct Value</h3>
-        <div className="mismatch-correction-row">
-          <label className="form-field"><span>Edit Field</span><select value={field} onChange={chooseField}>{FIELD_OPTIONS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-          <label className="form-field"><span>Correct Value</span><div className="currency-input"><i>₹</i><input type="number" step="0.01" value={value} onChange={event => { setValue(event.target.value); setSource('manual'); setRecalculated(false) }} /></div></label>
-        </div>
-      </section>
-
-      <div className="mismatch-compare-grid">
-        <div className="mismatch-compare-card">
-          <h4>Before Correction</h4>
-          <div className="compare-row"><span>Invoice Value</span><b>{money(row.invoice_total)}</b></div>
-          <div className="compare-row"><span>Calculated Total</span><b>{money(row.component_total)}</b></div>
-          <div className="compare-row"><span>Difference</span><b>{signedMoney(row.difference)}</b></div>
-        </div>
-        <div className={`mismatch-compare-card ${validated ? 'is-success' : ''}`}>
-          <h4>After Correction</h4>
-          <div className="compare-row"><span>Invoice Value</span><b>{money(after.invoice)}</b></div>
-          <div className="compare-row"><span>Calculated Total</span><b>{money(after.calculated)}</b></div>
-          <div className="compare-row"><span>Difference</span><b>{signedMoney(after.difference)}</b></div>
-          <div className="mismatch-badges">
-            <span className={`mismatch-badge ${after.totalsMatch ? 'badge-success' : 'badge-danger'}`}>{after.totalsMatch ? '✓ Totals Match' : 'Totals Mismatch'}</span>
-            <span className={`mismatch-badge ${after.gstValid ? 'badge-success' : 'badge-danger'}`}>{after.gstValid ? '✓ GST Valid' : 'GST Invalid'}</span>
+  const updateCorrectionValue = (nextValue, nextCorrectionType = correctionType) => {
+    setValue(nextValue)
+    setSource('manual')
+    setError('')
+    const nextEntered = currencyPaise(nextValue)
+    if (nextEntered !== null) setTallyImportData(correctedTotals(row, before, nextCorrectionType, nextEntered))
+  }
+  const comparison = (title, totals) => <section className={`invoice-summary-card${title === 'Tally Import Data' ? ' invoice-tally-import-card' : ''}`}>
+    <h3><span className="invoice-card-icon" aria-hidden="true">{title === 'Tally Import Data' ? '▣' : '▤'}</span><span>{title}</span></h3>
+    <small className="invoice-card-description">{title === 'Tally Import Data' ? 'Corrected working values' : 'Original values from the source file'}</small>
+    <>{[['Component Total', 'component'], ['Round Off', 'roundOff'], ['Final Total', 'final'], ['Invoice Value', 'invoice'], ['Remaining Difference', 'remaining']].map(([label, field]) => <div className="compare-row" key={label}><span>{label}</span><b className={totals[field] !== before[field] ? 'invoice-value-changed' : ''}>{formatPaise(totals[field])}</b></div>)}
+      <p className={totals.remaining === 0n ? 'invoice-matched' : 'invoice-review'}>{totals.remaining === 0n ? '\u2713 Totals Matched' : 'Review Required'}</p>
+    </>
+  </section>
+  const badgeLabels = [
+    returnLabels[row.return_type] || row.return_type,
+    row.voucher_type,
+    readOnly ? row.status || 'Ready' : after?.remaining === 0n ? '\u2713 Totals Matched' : 'Review Required',
+  ].filter(Boolean)
+  const invoiceDate = row.invoice_date || row.invoice_date_iso || '—'
+  const gstin = row.party?.gstin || row.party_gstin || '—'
+  return <div className="mismatch-modal-backdrop" onMouseDown={event => !saving && event.target === event.currentTarget && onClose()}>
+    <div className={`mismatch-modal invoice-summary-modal ${readOnly ? 'invoice-view-modal' : 'invoice-fix-modal'}`} role="dialog" aria-modal="true" aria-labelledby="invoice-summary-title">
+      <header className="mismatch-modal-header">
+        <div className="invoice-modal-header-main">
+          <div className="invoice-title-row">
+            <div className="invoice-number-block">
+              <span className="invoice-modal-title" id="invoice-summary-title">{readOnly ? 'View' : 'Fix Invoice'}</span>
+              <div className="invoice-number-line"><span>Invoice No.</span> <strong>{row.invoice_number}</strong></div>
+            </div>
+            <div className="invoice-status-badges">{badgeLabels.map(label => <span className={`invoice-status-badge${!readOnly && label === 'Review Required' ? ' invoice-badge-review' : !readOnly && label.includes('Totals Matched') ? ' invoice-badge-matched' : ''}`} key={label}>{label}</span>)}</div>
           </div>
+          <div className="invoice-modal-meta"><span>{invoiceDate}</span><span className="invoice-modal-meta-separator">•</span><span>{gstin}</span></div>
         </div>
+        <button className="mismatch-modal-close" disabled={saving} onClick={onClose} aria-label="Close">&times;</button>
+      </header>
+      <div className="mismatch-modal-body">
+        <InvoiceLineItems row={row} correctionType={correctionType} correctionValue={value}
+          onCorrectionChange={(field, nextValue) => { if (field === 'invoice_value') updateCorrectionValue(nextValue, 'invoice_value') }}
+          changedFields={correctionType === 'round_off' ? ['round_off'] : [correctionField]} />
+        <section><h3>Total Comparison</h3><div className="invoice-summary-columns">
+          <div className="invoice-summary-card"><h4><span className="invoice-card-icon" aria-hidden="true">▥</span><span>Component Total</span></h4><strong>{formatPaise(before.component)}</strong><small>Taxable + CGST + SGST + IGST + Cess</small></div>
+          <div className="invoice-summary-card"><h4><span className="invoice-card-icon" aria-hidden="true">▤</span><span>Source Invoice Value</span></h4><strong>{formatPaise(before.invoice)}</strong><small>Source invoice total, taken once</small></div>
+        </div></section>
+        {!readOnly && <section className="invoice-correction-section"><h3>Correction</h3><div className="invoice-correction-controls">
+          <label>Correction Type <select value={correctionType} onChange={event => { setCorrectionType(event.target.value); setValue(''); setTallyImportData(before); setError('') }}>{correctionOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+          <label>Correction Value <input type="text" inputMode="decimal" value={value} disabled={saving} onChange={event => updateCorrectionValue(event.target.value)} aria-label="Correction value" aria-invalid={Boolean(validationError)} />{validationError && <small className="invoice-correction-validation">{validationError}</small>}</label>
+          <span className="invoice-suggested-value">Suggested Value <b>{decimalPaise(before.difference)}</b></span>
+          <button className="mismatch-btn" disabled={saving} onClick={() => { const suggested = decimalPaise(before.difference); setCorrectionType('round_off'); setValue(suggested); setTallyImportData(correctedTotals(row, before, 'round_off', currencyPaise(suggested))); setSource('suggested'); setError('') }}>Apply Suggested Value</button>
+        </div></section>}
+        {readOnly && <section className="invoice-summary-card"><h3>Summary</h3>
+          <div className="compare-row"><span>Component Total</span><b>{formatPaise(before.component)}</b></div>
+          <div className="compare-row"><span>Round Off</span><b>{formatPaise(before.roundOff)}</b></div>
+          <div className="compare-row"><span>Final Total</span><b>{formatPaise(before.final)}</b></div>
+          <div className="compare-row"><span>Invoice Value</span><b>{formatPaise(before.invoice)}</b></div>
+          <div className="compare-row"><span>Remaining Difference</span><b>{formatPaise(before.remaining)}</b></div>
+          <p className={before.remaining === 0n ? 'invoice-matched' : 'invoice-review'}>{before.remaining === 0n ? '\u2713 Totals Matched' : 'Review Required'}</p>
+        </section>}
+        {!readOnly && <div className="invoice-summary-columns" aria-live="polite">{comparison('Source File Data', before)}{comparison('Tally Import Data', after)}</div>}
+        {error && <div className="mismatch-banner mismatch-banner-error" role="alert">{error}</div>}
       </div>
-
-      {field === 'round_off' && Math.abs(num(value)) > 1 && <div className="mismatch-banner mismatch-banner-error">Round Off must remain between -₹1.00 and +₹1.00.</div>}
-      {error && <div className="mismatch-banner mismatch-banner-error">{error}</div>}
+      {!readOnly && <footer className="mismatch-modal-footer"><button className="mismatch-btn" disabled={saving} onClick={onClose}>Cancel</button>
+        <button className="mismatch-btn mismatch-btn-primary" disabled={!canSave} onClick={save}>{saving ? 'Validating...' : 'Fix Invoice'}</button>
+      </footer>}
     </div>
-
-    <div className="mismatch-modal-footer">
-      <button className="mismatch-btn" onClick={onClose}>Cancel</button>
-      <button className="mismatch-btn mismatch-btn-outline" onClick={() => setRecalculated(true)}>Recalculate</button>
-      <button className="mismatch-btn mismatch-btn-primary" disabled={!canSave || saving} onClick={save}>{saving ? 'Applying…' : 'Apply & Revalidate'}</button>
-    </div>
-  </div></div>
+  </div>
 }

@@ -27,10 +27,17 @@ def _rate_text(value):
 
 
 def _metadata(master):
+    # metadata.name identifies which existing object an Alter targets; the
+    # message's own top-level "name" (set separately by each _*_message
+    # builder) is the value Tally assigns as the ledger's (possibly new)
+    # name. These differ only when existing_name is set to rename an
+    # already-existing ledger (e.g. a Party ledger enriched from
+    # GSTIN-as-name to its real business name) -- everywhere else
+    # existing_name is absent and both stay identical.
     is_alter = str(master.get("action", "Create")).strip().casefold() == "alter"
     return {
         "type": "Ledger",
-        "name": master["name"],
+        "name": master.get("existing_name") or master["name"],
         "reservedname": "",
         "action": "alter" if is_alter else "create",
     }
@@ -141,7 +148,7 @@ def _party_message(master):
 
 
 def _tax_message(master):
-    return {
+    message = {
         "metadata": _metadata(master),
         "name": master["name"],
         "parent": master["group"],
@@ -150,6 +157,12 @@ def _tax_message(master):
         "rateoftaxcalculation": _rate_text(master.get("gst_rate", "0")),
         "languagename": _language_name(master["name"]),
     }
+    # Cess is the one GST duty head with its own valuation-type dropdown
+    # (ad-valorem/per-unit/etc.) distinct from a plain percentage rate;
+    # "Any" leaves that choice unconstrained rather than forcing one.
+    if tally_tax_type(master["tax_type"]) == "Cess":
+        message["valuationtype"] = TALLY_ANY
+    return message
 
 
 def _account_message(master, rate_mode="both"):
@@ -160,6 +173,14 @@ def _account_message(master, rate_mode="both"):
     ledger_rate = Decimal(account_ledger_rate(master))
     supply_type = master.get("supply_type", "Goods")
     taxability = master.get("taxability", "Taxable")
+    # "As per Company/Group" (the common, non-rate-suffixed fallback ledgers
+    # e.g. "GST Sales"/"GST Purchase") means this ledger has no ledger-level
+    # GST detail override at all -- Tally itself never exposes a Taxability
+    # Type for that mode, so supplytype/taxability must be omitted here
+    # rather than sent with a possibly-wrong forced "Taxable" value. Every
+    # rate-wise and exempt ledger keeps today's default, unchanged.
+    gst_details_source = master.get("gst_details_source", "Specify Details Here")
+    inherits_from_company = gst_details_source == "As per Company/Group"
 
     message = {
         "metadata": _metadata(master),
@@ -183,11 +204,12 @@ def _account_message(master, rate_mode="both"):
     if rate_mode in ("both", "flat_only"):
         message["rateoftaxcalculation"] = _rate_text(ledger_rate)
     if rate_mode in ("both", "nested_only"):
-        message["gstdetails"] = [{
-            "applicablefrom": _applicable_from(master),
-            "supplytype": supply_type,
-            "taxability": taxability,
-            "srcofgstdetails": "Specify Details Here",
+        gst_detail = {"applicablefrom": _applicable_from(master)}
+        if not inherits_from_company:
+            gst_detail["supplytype"] = supply_type
+            gst_detail["taxability"] = taxability
+        gst_detail.update({
+            "srcofgstdetails": gst_details_source,
             "gstcalcslabonmrp": False,
             "isreversechargeapplicable": False,
             "isnongstgoods": False,
@@ -198,7 +220,8 @@ def _account_message(master, rate_mode="both"):
                 "statename": TALLY_ANY,
                 "ratedetails": _gst_rate_details(ledger_rate),
             }],
-        }]
+        })
+        message["gstdetails"] = [gst_detail]
     return message
 
 

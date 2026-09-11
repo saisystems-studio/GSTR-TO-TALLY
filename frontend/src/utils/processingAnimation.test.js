@@ -11,9 +11,9 @@ import {
 test('processing animation exposes the exact neutral stage copy', () => {
   assert.deepEqual(PROCESSING_STAGES.map(stage => [stage.title, stage.subtitle]), [
     ['Data Received', 'Preparing your data'],
-    ['Processing Data', 'Organizing records'],
-    ['Transferring Data', 'Structuring fields'],
-    ['Preparing Table', 'Building preview grid'],
+    ['Processing Data', 'Reading and organizing records'],
+    ['Structuring Records', 'Arranging fields and values'],
+    ['Preparing Table', 'Building the preview grid'],
     ['Ready to Display', 'Your preview is ready'],
   ])
 
@@ -23,26 +23,26 @@ test('processing animation exposes the exact neutral stage copy', () => {
 
 test('processing animation holds on table preparation until backend completion', () => {
   assert.equal(getProcessingStage(0, false).title, 'Data Received')
-  assert.equal(getProcessingStage(500, false).title, 'Processing Data')
-  assert.equal(getProcessingStage(1800, false).title, 'Transferring Data')
-  assert.equal(getProcessingStage(2300, false).title, 'Preparing Table')
+  assert.equal(getProcessingStage(900, false).title, 'Processing Data')
+  assert.equal(getProcessingStage(2100, false).title, 'Structuring Records')
+  assert.equal(getProcessingStage(3200, false).title, 'Preparing Table')
   assert.equal(getProcessingStage(8000, false).title, 'Preparing Table')
   assert.equal(getProcessingStage(8000, true).title, 'Ready to Display')
 })
 
 test('processing animation maps elapsed time to data transfer scene phases', () => {
   assert.equal(getProcessingVisualMode(0, false), 'source')
-  assert.equal(getProcessingVisualMode(600, false), 'orbit')
-  assert.equal(getProcessingVisualMode(1300, false), 'orbit-active')
-  assert.equal(getProcessingVisualMode(1900, false), 'transfer')
-  assert.equal(getProcessingVisualMode(2400, false), 'grid')
-  assert.equal(getProcessingVisualMode(3000, false), 'grid-fill')
-  assert.equal(getProcessingVisualMode(8000, false), 'grid-fill')
-  assert.equal(getProcessingVisualMode(8000, true), 'success')
+  assert.equal(getProcessingVisualMode(900, false), 'flow')
+  assert.equal(getProcessingVisualMode(1600, false), 'flow')
+  assert.equal(getProcessingVisualMode(2500, false), 'align')
+  assert.equal(getProcessingVisualMode(3300, false), 'build')
+  assert.equal(getProcessingVisualMode(4000, false), 'build')
+  assert.equal(getProcessingVisualMode(8000, false), 'build')
+  assert.equal(getProcessingVisualMode(8000, true), 'ready')
 })
 
 test('processing completion waits for the ready stage display window', () => {
-  assert.equal(isProcessingComplete(3200, true), false)
-  assert.equal(isProcessingComplete(3600, true), true)
+  assert.equal(isProcessingComplete(4500, true), false)
+  assert.equal(isProcessingComplete(5000, true), true)
   assert.equal(isProcessingComplete(8000, false), false)
 })

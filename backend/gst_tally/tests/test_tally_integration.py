@@ -27,7 +27,8 @@ from gst_tally.services.gstr2b_parser import parse as parse_gstr2b
 from gst_tally.services.gstr2a_parser import parse as parse_gstr2a
 from gst_tally.tally.service import (_period_payload, _voucher_balance, _voucher_diagnostics,
                                      _write_error_code, _query_back_state, _verified_write_outcome,
-                                     _write_voucher, _write_master, _write_metadata, _query_preflight_error)
+                                     _write_voucher, _write_master, _write_metadata, _query_preflight_error,
+                                     WRITE_ACCEPTED_PENDING_STATUS, WRITE_ACCEPTED_PENDING_DB_STATUS)
 from openpyxl import Workbook
 
 
@@ -160,19 +161,34 @@ class TallyValidationTests(SimpleTestCase):
             "query_valid": False, "found": False, "reason": "wrong report",
         }))
 
-    def test_accepted_write_without_positive_query_back_is_not_imported(self):
+    def test_accepted_write_without_positive_query_back_is_write_accepted_pending_verification(self):
+        """Tally already accepted the write (CREATED=1, no ERRORS/EXCEPTIONS) --
+        a query-back that can't yet confirm it is a distinct, much less severe
+        outcome than a genuine rejection, and must never read as a plain
+        "Failed"/"Verification Failed" (which a caller could conflate with a
+        real Tally rejection, or -- worse -- treat as safe to resend)."""
         response = TallyResponse(created=1, errors=0)
 
         missing = _verified_write_outcome(response, {"query_valid": True, "found": False, "reason": "not found"})
         invalid = _verified_write_outcome(response, {"query_valid": False, "found": False, "reason": "wrong response"})
         found = _verified_write_outcome(response, {"query_valid": True, "found": True, "reason": "found"})
 
-        self.assertEqual(missing["result_status"], "Verification Failed")
-        self.assertEqual(missing["mapping_status"], "Unknown")
-        self.assertEqual(invalid["result_status"], "Verification Failed")
-        self.assertEqual(invalid["mapping_status"], "Unknown")
+        # mapping_status (persisted to TallyVoucherMapping.import_status, a
+        # CharField(max_length=30)) is deliberately the short form -- the
+        # long, spec-worded string is only ever used for the API-facing
+        # result_status/import_status fields, never written to that column.
+        self.assertEqual(missing["result_status"], WRITE_ACCEPTED_PENDING_STATUS)
+        self.assertEqual(missing["mapping_status"], WRITE_ACCEPTED_PENDING_DB_STATUS)
+        self.assertLessEqual(len(missing["mapping_status"]), 30)
+        self.assertTrue(missing["write_accepted"])
+        self.assertFalse(missing["verified"])
+        self.assertEqual(invalid["result_status"], WRITE_ACCEPTED_PENDING_STATUS)
+        self.assertEqual(invalid["mapping_status"], WRITE_ACCEPTED_PENDING_DB_STATUS)
+        self.assertTrue(invalid["write_accepted"])
         self.assertEqual(found["result_status"], "Imported")
         self.assertEqual(found["mapping_status"], "Imported")
+        self.assertTrue(found["write_accepted"])
+        self.assertTrue(found["verified"])
 
     @override_settings(TALLY_WRITE_FORMAT="JSON")
     def test_active_writes_use_native_json_for_masters_and_xml_for_vouchers(self):
@@ -914,12 +930,31 @@ class TallyValidationTests(SimpleTestCase):
 
         with patch("gst_tally.tally.connection.tcp_probe",
                    return_value=(False, "TALLY_CONNECTION_REFUSED", "Tally refused the TCP connection")), \
-             patch("gst_tally.tally.connection.local_port_listening", return_value=False):
+             patch("gst_tally.tally.connection.local_port_listening", return_value=False), \
+             patch("gst_tally.tally.connection.tally_process_running", return_value=True):
             result = step3_connection_check(Client())
 
         self.assertFalse(result["tcp_connected"])
         self.assertEqual(result["error_code"], "TALLY_PORT_NOT_LISTENING")
         self.assertEqual(result["error_message"], "No process is listening on 127.0.0.1:9000.")
+        self.assertFalse(result["can_import"])
+
+    @override_settings(TALLY_DRY_RUN=False, TALLY_ODBC_ENABLED=True)
+    def test_step3_reports_process_not_running_when_tally_is_not_started(self):
+        class Client:
+            base_url = "http://127.0.0.1:9000"
+            def post(self, payload):
+                raise AssertionError("HTTP must not be attempted when Tally is not running")
+
+        with patch("gst_tally.tally.connection.tcp_probe",
+                   return_value=(False, "TALLY_CONNECTION_REFUSED", "Tally refused the TCP connection")), \
+             patch("gst_tally.tally.connection.local_port_listening", return_value=False), \
+             patch("gst_tally.tally.connection.tally_process_running", return_value=False):
+            result = step3_connection_check(Client())
+
+        self.assertFalse(result["tcp_connected"])
+        self.assertEqual(result["error_code"], "TALLY_PROCESS_NOT_RUNNING")
+        self.assertIn("does not appear to be running", result["error_message"])
         self.assertFalse(result["can_import"])
 
     @override_settings(TALLY_DRY_RUN=False, TALLY_ODBC_ENABLED=True, TALLY_WRITE_FORMAT="XML", TALLY_VERSION="7.0")

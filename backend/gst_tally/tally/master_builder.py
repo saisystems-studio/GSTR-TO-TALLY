@@ -78,7 +78,13 @@ def build_master(master, company="", rate_mode="both"):
         node = ET.SubElement(message, "STOCKITEM", {"NAME": master["name"], "ACTION": "Create"}); ET.SubElement(node, "NAME").text = master["name"]; ET.SubElement(node, "PARENT").text = master.get("group", "Primary"); ET.SubElement(node, "BASEUNITS").text = master.get("unit", "")
         if master.get("hsn_sac"): ET.SubElement(node, "HSNCODE").text = master["hsn_sac"]
     else:
-        node = ET.SubElement(message, "LEDGER", {"NAME": master["name"], "ACTION": master.get("action", "Create")}); ET.SubElement(node, "NAME").text = master["name"]; _typed(node, "PARENT", master["group"])
+        # The LEDGER tag's NAME attribute identifies which existing object an
+        # Alter targets; the nested <NAME> element is the value Tally assigns
+        # as the ledger's (possibly new) name. These differ only when
+        # existing_name is set to rename an already-existing ledger (e.g. a
+        # Party ledger enriched from GSTIN-as-name to its real business name)
+        # -- everywhere else existing_name is absent and both stay identical.
+        node = ET.SubElement(message, "LEDGER", {"NAME": master.get("existing_name") or master["name"], "ACTION": master.get("action", "Create")}); ET.SubElement(node, "NAME").text = master["name"]; _typed(node, "PARENT", master["group"])
         is_party_alter = master["master_type"] == "Party" and str(master.get("action", "Create")).strip().casefold() == "alter"
         if master.get("gstin"):
             ET.SubElement(node, "PARTYGSTIN").text = master["gstin"]
@@ -193,7 +199,7 @@ def build_master(master, company="", rate_mode="both"):
                     _typed(detail, "GSTRATEPERUNIT", "0", "Number")
     return ET.tostring(root, encoding="utf-8")
 
-def masters_for(vouchers):
+def masters_for(vouchers, return_type=None):
     found = {}
     for voucher in vouchers:
         party = voucher["party"]
@@ -208,11 +214,19 @@ def masters_for(vouchers):
         # ledgers written into the company.
         for item in voucher["items"]:
             ledger = item.get("account_ledger") or item["sales_ledger"]
-            found[(master_type, ledger.casefold())] = {"master_type": master_type, "name": ledger, "group": account_group, "gst_rate": item["gst_rate"], "taxability": item.get("taxability", "Taxable"), "supply_type": item["supply_type"], "applicable_from": voucher.get("invoice_date", "")}
+            found[(master_type, ledger.casefold())] = {"master_type": master_type, "name": ledger, "group": account_group, "gst_rate": item["gst_rate"], "taxability": item.get("taxability", "Taxable"), "supply_type": item["supply_type"], "applicable_from": voucher.get("invoice_date", ""), "gst_details_source": item.get("gst_details_source", "Specify Details Here")}
         for tax in voucher.get("tax_allocations", []):
             found[("Tax", tax["ledger"].casefold())] = {"master_type": "Tax", "name": tax["ledger"], "group": "Duties & Taxes", "tax_type": tax["tax_type"], "gst_rate": tax.get("gst_rate", "0")}
-        if float(voucher.get("cess") or 0): found[("Tax", "cess")] = {"master_type": "Tax", "name": "Cess", "group": "Duties & Taxes", "tax_type": "Cess"}
+        if float(voucher.get("cess") or 0):
+            cess_ledger_name = voucher.get("cess_ledger", "Cess")
+            found[("Tax", cess_ledger_name.casefold())] = {"master_type": "Tax", "name": cess_ledger_name, "group": "Duties & Taxes", "tax_type": "Cess", "gst_rate": "0"}
         if float(voucher.get("other_charges") or 0): found[("Charge", "other charges")] = {"master_type": "Charge", "name": "Other Charges", "group": "Indirect Incomes"}
         if float(voucher.get("rounding_adjustment") or 0): found[("Charge", "round off")] = {"master_type": "Charge", "name": "Round Off", "group": "Indirect Expenses"}
+    # No batch/file-level "Cess Zero" placeholder master: a zero (or absent)
+    # cess amount on a voucher means no cess ledger at all is required for
+    # it -- only a genuinely nonzero voucher["cess"] above adds the real
+    # Duties & Taxes Cess/Input Cess tax ledger. Every required master must
+    # trace back to an actual eligible voucher's data, never to the mere
+    # presence of a Cess column in the source file.
     order = {"Party": 0, "Sales": 1, "Purchase": 1, "Tax": 2, "Charge": 3}
     return sorted(found.values(), key=lambda row: (order[row["master_type"]], row["name"].casefold()))

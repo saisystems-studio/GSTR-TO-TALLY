@@ -1,210 +1,179 @@
-import json
-import logging
-from collections import OrderedDict
-from datetime import date, datetime, time
-from decimal import Decimal
-from pathlib import Path
+"""Pre-import preview: reads the same canonical, normalized invoice rows the
+real import will persist (see canonical_invoice.py), so what the user sees
+on the Preview screen can never disagree with what actually gets saved.
 
-from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
-from gst_tally.utils.uploaded_files import file_type_label, load_json_upload, validate_upload_type
-from .csv_preview_parser import parse_csv_preview
+Returns dict-shaped rows keyed by canonical field name plus a matching
+column list (key/label/format) chosen per return type, so the frontend never
+has to guess which raw header meant what.
+"""
+from gst_tally.utils.file_utils import first_value, json_safe
+from gst_tally.utils.uploaded_files import file_type_label, validate_upload_type
+from . import canonical_invoice
 
-RETURN_TYPES = {"GSTR1", "GSTR2A", "GSTR2B"}
-ALLOWED_EXTENSIONS = {"json", "csv", "xlsx", "xls"}
-logger = logging.getLogger(__name__)
+RETURN_TYPES = canonical_invoice.RETURN_TYPES
 
+# Permanent canonical preview/table-grid column order -- identical across
+# GSTR-1, GSTR-2A and GSTR-2B, and across JSON/Excel/CSV sources (the preview
+# grid always uses this exact 13-column order; Cess always sits immediately
+# after IGST). "Customer GSTIN" is the customer_gstin field, which already
+# means the same thing for every return type -- the counterparty GSTIN
+# tally/mappings.py books the voucher against (see
+# canonical_invoice.normalize_row). The supplier_gstin-derived "GSTIN" column
+# was dropped: for GSTR-2A/2B it always duplicated Customer GSTIN, and for
+# GSTR-1 it was never populated per row.
+CANONICAL_COLUMNS = [
+    ("invoice_date", "Invoice Date", "date"),
+    ("customer_gstin", "Customer GSTIN", None),
+    ("invoice_no", "Invoice No", None),
+    ("taxable_value", "Taxable Value", "money"),
+    ("tax_percent", "Tax %", "percent"),
+    ("cgst", "CGST", "money"),
+    ("sgst", "SGST", "money"),
+    ("igst", "IGST", "money"),
+    ("cess", "Cess", "money"),
+    ("invoice_value", "Invoice Value", "money"),
+    ("state_code", "State code", None),
+    ("reverse_charge", "Reverse Charge", None),
+    ("invoice_type", "Invoice Type", None),
+]
 
-def _display(value):
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (date, datetime, time)):
-        return value.isoformat()
-    if isinstance(value, Decimal):
-        return str(value)
-    return str(value)
-
-
-def _flatten(value, prefix="", output=None):
-    output = output if output is not None else OrderedDict()
-    if isinstance(value, dict):
-        for key, child in value.items():
-            name = f"{prefix}.{key}" if prefix else str(key)
-            if isinstance(child, dict):
-                _flatten(child, name, output)
-            elif isinstance(child, list):
-                output[name] = json.dumps(child, ensure_ascii=False, separators=(",", ":"))
-            else:
-                output[name] = _display(child)
-    else:
-        output[prefix or "value"] = _display(value)
-    return output
+PREVIEW_COLUMNS = {return_type: CANONICAL_COLUMNS for return_type in RETURN_TYPES}
 
 
-def _ci_get(mapping, *aliases, default=None):
-    if not isinstance(mapping, dict):
-        return default
-    keys = {str(key).casefold(): key for key in mapping}
-    for alias in aliases:
-        actual = keys.get(alias.casefold())
-        if actual is not None:
-            return mapping[actual]
-    return default
+EXTRA_COLUMN_PREFIX = "extra:"
+
+# Preview-only extra header aliases, layered on top of (never edited into)
+# canonical_invoice.RETURN_TYPE_ALIASES -- the registry real parsing/import
+# uses. These exist purely to widen what the read-only preview can resolve
+# straight from source_line when the canonical field came back empty, e.g. a
+# bare "GSTIN" or "Party Name" column that canonical_invoice.py doesn't (and,
+# for import correctness, should not on its own) treat as authoritative for
+# every return type. Kept return-type-directional on purpose: GSTR-2A/2B
+# never gets a "recipient"-worded alias here, since for a purchase return
+# that column is the filer's own GSTIN (see COMPANY_ALIASES), not the
+# supplier's -- reusing it would silently swap in the wrong party, not just
+# fix a blank cell.
+_PREVIEW_EXTRA_ALIASES = {
+    "GSTR1": {
+        "customer_gstin": ["GSTIN", "GSTIN of Recipient", "Party GSTIN", "gstin", "cgstin"],
+        "customer_name": ["Party Name", "party_name"],
+    },
+    "GSTR2A": {
+        "supplier_gstin": ["GSTIN", "Party GSTIN", "gstin", "cgstin"],
+        "supplier_name": ["Party Name", "party_name"],
+    },
+}
+_PREVIEW_EXTRA_ALIASES["GSTR2B"] = _PREVIEW_EXTRA_ALIASES["GSTR2A"]
 
 
-def _flatten_except(mapping, excluded):
-    output = OrderedDict()
-    excluded = {key.casefold() for key in excluded}
-    for key, value in mapping.items():
-        if str(key).casefold() not in excluded:
-            _flatten(value, str(key), output)
-    return output
+def _preview_field_aliases(return_type, key):
+    canonical_aliases = canonical_invoice.RETURN_TYPE_ALIASES.get(return_type, {}).get(key, [])
+    extra_aliases = _PREVIEW_EXTRA_ALIASES.get(return_type, {}).get(key, [])
+    return [*canonical_aliases, *extra_aliases]
 
 
-def _json_rows(payload):
-    # GSTR-1 B2B has party -> invoice -> item nesting. Expand only arrays into rows;
-    # retain original key names and values without GST calculations or normalization.
-    b2b = _ci_get(payload, "b2b", default=None) if isinstance(payload, dict) else None
-    if isinstance(payload, dict) and isinstance(b2b, list):
-        rows = []
-        root_values = _flatten_except(payload, {"b2b"})
-        invoice_count = 0
-        item_count = 0
-        for party in b2b:
-            party_values = _flatten_except(party, {"inv"}) if isinstance(party, dict) else OrderedDict()
-            invoices = _ci_get(party, "inv", "invoices", default=[])
-            if not invoices:
-                rows.append(OrderedDict((*root_values.items(), *party_values.items())))
-                continue
-            for invoice in invoices:
-                invoice_count += 1
-                invoice_values = _flatten_except(invoice, {"itms", "items"}) if isinstance(invoice, dict) else OrderedDict()
-                items = _ci_get(invoice, "itms", "items", default=[])
-                if not items:
-                    rows.append(OrderedDict((*root_values.items(), *party_values.items(), *invoice_values.items())))
-                    continue
-                for item in items:
-                    item_count += 1
-                    row = OrderedDict((*root_values.items(), *party_values.items(), *invoice_values.items()))
-                    row.update(_flatten(item))
-                    rows.append(row)
-        logger.info("GST JSON preview counts - invoices: %d, item entries: %d, preview rows: %d",
-                    invoice_count, item_count, len(rows))
-        return rows
-    if isinstance(payload, list):
-        return [_flatten(item) for item in payload]
-    if isinstance(payload, dict):
-        for value in payload.values():
-            if isinstance(value, list) and value:
-                return [_flatten(item) for item in value]
-        return [_flatten(payload)]
-    return [_flatten(payload)]
+def _resolve_preview_value(row, return_type, key):
+    """The value already normalized onto the canonical row if present;
+    otherwise a best-effort re-read of the raw source row (source_line)
+    against every known alias for this field -- case/space/underscore/hyphen
+    -insensitive via normalize_header, same as canonical_invoice's own
+    matching. Never invents data: a value only appears here if some source
+    column, under some recognized name, actually carried it."""
+    value = row.get(key)
+    if value not in (None, ""):
+        return value
+    source = row.get("source_line")
+    if not isinstance(source, dict):
+        return value
+    aliases = _preview_field_aliases(return_type, key)
+    if not aliases:
+        return value
+    fallback = first_value(source, aliases)
+    return fallback if fallback not in (None, "") else value
 
 
-def _matrix(rows):
-    columns = []
+def _extra_source_columns(rows, return_type):
+    """Source headers present in the upload that aren't already covered by
+    one of this return type's canonical field aliases -- e.g. a portal
+    export's extra "IRN"/"Filing Date" column. Preserves first-seen order
+    across all rows so the column set stays stable, and never drops a column
+    just because one row happens to leave it blank (task spec section: show
+    all meaningful source data, not just the fixed schema)."""
+    aliases = canonical_invoice.RETURN_TYPE_ALIASES.get(return_type, {})
+    consumed = {canonical_invoice.normalize_header(alias) for alias_list in aliases.values() for alias in alias_list}
+    # Also exclude the preview-only fallback aliases (see _resolve_preview_value)
+    # -- a header like "Party Name" that just filled a blank Customer/Supplier
+    # Name cell must not additionally reappear as its own "extra" column.
+    consumed |= {canonical_invoice.normalize_header(alias)
+                 for type_aliases in _PREVIEW_EXTRA_ALIASES.values()
+                 for alias_list in type_aliases.values() for alias in alias_list}
+    headers = {}
     for row in rows:
-        for key in row:
-            if key not in columns:
-                columns.append(key)
-    return columns, [[row.get(column, "") for column in columns] for row in rows]
-
-
-def _structured_headers(columns):
-    groups = []
-    invoice = {"inum", "inv_typ", "idt", "val"}
-    tax = {"itm_det.iamt", "itm_det.camt", "itm_det.samt", "itm_det.csamt"}
-    item = {"num", "itm_det.rt", "itm_det.txval"}
-    labels = {"invoice": "Invoice Details", "item": "Item Details", "tax": "Tax Amount"}
-    kinds = []
-    for column in columns:
-        kinds.append("invoice" if column in invoice else "tax" if column in tax else "item" if column in item else None)
-    index = 0
-    while index < len(columns):
-        kind = kinds[index]
-        if kind is None:
-            groups.append({"label": columns[index], "row_span": 2})
-            index += 1
+        source = row.get("source_line") or {}
+        if not isinstance(source, dict):
             continue
-        children = []
-        while index < len(columns) and kinds[index] == kind:
-            children.append({"label": columns[index]})
-            index += 1
-        groups.append({"label": labels[kind], "children": children})
-    return groups
-
-
-def _preview_json(file_obj):
-    payload = load_json_upload(file_obj, object_pairs_hook=OrderedDict, parse_int=str, parse_float=str)
-    columns, rows = _matrix(_json_rows(payload))
-    return {"sheet_name": None, "sheets": [], "columns": columns, "rows": rows,
-            "layout_mode": "structured", "title": "Goods and Services Tax - GSTR-1 (B2B)",
-            "section_title": "B2B Invoice Source Data", "headers": _structured_headers(columns),
-            "merged_cells": [], "column_widths": []}
-
-
-def _preview_excel(file_obj, requested_sheet=None):
-    try:
-        if Path(getattr(file_obj, "name", "")).suffix.lower() == ".xls":
-            from .gstr2b_parser import _load_source_workbook
-            workbook = _load_source_workbook(file_obj)
-        else:
-            workbook = load_workbook(file_obj, read_only=False, data_only=True)
-    except Exception as exc:
-        raise ValueError(f"Invalid Excel file: {exc}") from exc
-    sheets = workbook.sheetnames
-    if not sheets:
-        return {"sheet_name": None, "sheets": [], "columns": [], "rows": [], "layout_mode": "worksheet", "merged_cells": [], "column_widths": []}
-    sheet_name = requested_sheet if requested_sheet in sheets else sheets[0]
-    sheet = workbook[sheet_name]
-    values = [[_display(cell.value) for cell in row] for row in sheet.iter_rows()]
-    while values and not any(value != "" for value in values[-1]):
-        values.pop()
-    if not values:
-        return {"sheet_name": sheet_name, "sheets": sheets, "columns": [], "rows": [], "layout_mode": "worksheet", "merged_cells": [], "column_widths": []}
-    width = max(len(row) for row in values)
-    rows = [list(row) + [""] * (width - len(row)) for row in values]
-    merged = [{"start_row": item.min_row - 1, "start_col": item.min_col - 1, "row_span": item.max_row - item.min_row + 1, "col_span": item.max_col - item.min_col + 1} for item in sheet.merged_cells.ranges]
-    widths = [sheet.column_dimensions[get_column_letter(index + 1)].width or 13 for index in range(width)]
-    detected_header = next((index for index, row in enumerate(rows)
-                            if any(value.strip().casefold() == "gstin of supplier" for value in row)), None)
-    data_start = detected_header + 1 if detected_header is not None else _excel_header_row_count(rows)
-    candidates = rows[:data_start]
-    header_index = detected_header if detected_header is not None else (max(range(len(candidates)), key=lambda index: sum(bool(value.strip()) for value in candidates[index])) if candidates else None)
-    columns = candidates[header_index] if header_index is not None else (rows[0] if rows else [])
-    title_rows = [row for index, row in enumerate(candidates) if index != header_index and sum(bool(value.strip()) for value in row) == 1]
-    titles = [next(value for value in row if value.strip()) for row in title_rows]
-    data_rows = rows[data_start:]
-    return {"sheet_name": sheet_name, "sheets": sheets, "columns": columns, "rows": data_rows,
-            "layout_mode": "worksheet", "title": titles[0] if titles else "",
-            "section_title": titles[1] if len(titles) > 1 else "", "headers": [],
-            "merged_cells": [], "column_widths": widths, "header_row_count": 0}
-
-
-def _excel_header_row_count(rows):
-    for index, row in enumerate(rows):
-        values = [value.strip() for value in row if value.strip()]
-        if not values:
-            continue
-        numeric = sum(value.replace(",", "").replace(".", "", 1).lstrip("+-").isdigit() for value in values)
-        identifiers = sum(any(char.isdigit() for char in value) and len(value) >= 10 for value in values)
-        if index > 0 and (numeric >= max(2, len(values) // 3) or identifiers >= 2):
-            return index
-    return 1 if rows else 0
+        for header in source:
+            if header == "source_row_number" or header in headers:
+                continue
+            token = canonical_invoice.normalize_header(header)
+            if not token or token in consumed:
+                continue
+            headers[header] = True
+    return list(headers)
 
 
 def preview_file(file_obj, return_type, sheet_name=None):
     if return_type not in RETURN_TYPES:
         raise ValueError("Unsupported return type")
-    extension = validate_upload_type(file_obj, ALLOWED_EXTENSIONS)
-    if extension == "json":
-        result = _preview_json(file_obj)
-    elif extension == "csv":
-        result = parse_csv_preview(file_obj)
-        result.update({"layout_mode": "worksheet", "headers": [], "merged_cells": [], "column_widths": []})
-    else:
-        result = _preview_excel(file_obj, sheet_name)
+    extension = validate_upload_type(file_obj, canonical_invoice.ALLOWED_EXTENSIONS)
+    rows, metadata = canonical_invoice.parse_source(file_obj, return_type, extension=extension)
+    diagnostics = metadata.get("diagnostics", {})
+    column_defs = PREVIEW_COLUMNS[return_type]
+    columns = [{"key": key, "label": label, "format": fmt} for key, label, fmt in column_defs]
+    extra_headers = _extra_source_columns(rows, return_type)
+    columns += [{"key": f"{EXTRA_COLUMN_PREFIX}{header}", "label": header, "format": None} for header in extra_headers]
+    preview_rows = []
+    for row in rows:
+        source = row.get("source_line") or {}
+        values = {key: _resolve_preview_value(row, return_type, key) for key, _, _ in column_defs}
+        values.update({f"{EXTRA_COLUMN_PREFIX}{header}": source.get(header) if isinstance(source, dict) else None for header in extra_headers})
+        preview_rows.append(json_safe(values))
     return {"return_type": return_type, "file_name": file_obj.name, "file_type": file_type_label(extension),
-            **result, "row_count": len(result["rows"])}
+            "sheet_name": None, "sheets": [], "columns": columns, "rows": preview_rows,
+            "row_count": len(preview_rows), "diagnostics": diagnostics}
+
+
+def _invoice_row_dict(invoice):
+    """A GSTInvoice's persisted fields, reshaped into the same row dict shape
+    preview_file() builds from a freshly parsed source row -- the model's
+    field names already match CANONICAL_COLUMNS's keys 1:1 (see models.py),
+    and source_line is stored on the invoice for the same alias fallback
+    _resolve_preview_value() already does for a live upload."""
+    return {**{key: getattr(invoice, key) for key, _, _ in CANONICAL_COLUMNS}, "source_line": invoice.source_line or {}}
+
+
+def preview_batch(batch):
+    """Refresh-safe reconstruction of the exact same preview shape as
+    preview_file(), read from the invoices already persisted for this batch
+    instead of re-parsing the original upload -- the browser can never hand
+    JS back the original File object after a reload, so Step 2 must be able
+    to rebuild its table from the stored batch alone. Reuses the same column
+    defs and value resolution as the live upload preview, so the two can
+    never disagree."""
+    return_type = batch.gst_return_type
+    if return_type not in RETURN_TYPES:
+        raise ValueError("Unsupported return type")
+    rows = [_invoice_row_dict(invoice) for invoice in batch.invoices.all().order_by("id")]
+    column_defs = PREVIEW_COLUMNS[return_type]
+    columns = [{"key": key, "label": label, "format": fmt} for key, label, fmt in column_defs]
+    extra_headers = _extra_source_columns(rows, return_type)
+    columns += [{"key": f"{EXTRA_COLUMN_PREFIX}{header}", "label": header, "format": None} for header in extra_headers]
+    preview_rows = []
+    for row in rows:
+        source = row.get("source_line") or {}
+        values = {key: _resolve_preview_value(row, return_type, key) for key, _, _ in column_defs}
+        values.update({f"{EXTRA_COLUMN_PREFIX}{header}": source.get(header) if isinstance(source, dict) else None for header in extra_headers})
+        preview_rows.append(json_safe(values))
+    return {"return_type": return_type, "file_name": batch.file_name, "file_type": batch.file_type,
+            "sheet_name": None, "sheets": [], "columns": columns, "rows": preview_rows,
+            "row_count": len(preview_rows), "diagnostics": {}}

@@ -46,8 +46,7 @@ class VerifiedRateMasterClient(RecordingClient):
             self.write_log.append(("xml", payload))
             if b"<REPORTNAME>Vouchers</REPORTNAME>" in payload:
                 root = ET.fromstring(payload)
-                taxable = [{"ledger": entry.findtext("LEDGERNAME") or "", "amount": entry.findtext("AMOUNT") or "",
-                            "gst_rate": entry.findtext("RATEOFINVOICETAX") or ""}
+                taxable = [{"ledger": entry.findtext("LEDGERNAME") or "", "amount": entry.findtext("AMOUNT") or ""}
                            for entry in root.findall(".//LEDGERENTRIES.LIST")]
                 self.written.append({"number": root.findtext(".//VOUCHERNUMBER") or "",
                                      "type": (root.find(".//VOUCHER").get("VCHTYPE") or ""),
@@ -134,11 +133,19 @@ class MixedRateVoucherUsesVerifiedMasterRateTests(TestCase):
         row = next(row for row in result["results"] if row["invoice_no"] == "1")
         self.assertEqual(row["status"], "Imported", row.get("reason"))
 
+        # Each allocation is routed to its own distinctly-named ledger and
+        # amount -- never bled into the other -- and the sent voucher carries
+        # no voucher-level rate tag, so Tally resolves the rate purely from
+        # each ledger's own master (verified below).
         [written] = client.written
-        rates = {row["ledger"]: row["gst_rate"] for row in written["taxable_allocations"]}
-        self.assertEqual(rates["GST Purchase 5%"], "5")
-        self.assertEqual(rates["GST Purchase 18%"], "18")
-        self.assertNotEqual(rates["GST Purchase 5%"], rates["GST Purchase 18%"])
+        amounts = {row["ledger"]: row["amount"] for row in written["taxable_allocations"]}
+        self.assertEqual(amounts["GST Purchase 5%"], "-190.00")
+        self.assertEqual(amounts["GST Purchase 18%"], "-5960.00")
+        raw_xml = ET.fromstring(written["raw_xml"])
+        for entry in raw_xml.findall(".//LEDGERENTRIES.LIST"):
+            for tag in ("RATE", "RATEOFINVOICETAX", "BASICRATEOFINVOICETAX", "GSTTAXRATE"):
+                self.assertIsNone(entry.find(tag))
+            self.assertEqual(entry.findall("RATEDETAILS.LIST"), [])
 
         # The masters were genuinely re-read from Tally with their own nested
         # rate breakdown -- not merely trusted from the source invoice.
@@ -175,7 +182,8 @@ class VoucherPartyDetailsTests(SimpleTestCase):
         self.assertEqual(node.findtext("PARTYLEDGERNAME"), "RE SUSTAINABILITY IWM SOLUTIONS LIMITED")
         self.assertEqual(node.findtext("PARTYGSTIN"), SUPPLIER_GSTIN)
         self.assertEqual(node.findtext("STATENAME"), "Tamil Nadu")
-        self.assertEqual(node.findtext("COUNTRYNAME"), "India")
+        self.assertEqual(node.findtext("COUNTRYOFRESIDENCE"), "India")
+        self.assertIsNone(node.find("COUNTRYNAME"))  # not a real Voucher field; Tally silently drops it
         self.assertEqual(node.findtext("GSTREGISTRATIONTYPE"), "Regular")
         self.assertEqual(node.findtext("PARTYMAILINGNAME"), "RE SUSTAINABILITY IWM SOLUTIONS LIMITED")
         self.assertEqual(node.findtext("PARTYPINCODE"), "600001")
@@ -190,7 +198,7 @@ class VoucherPartyDetailsTests(SimpleTestCase):
 
         self.assertIsNone(node.find("PARTYGSTIN"))
         self.assertIsNone(node.find("STATENAME"))
-        self.assertIsNone(node.find("COUNTRYNAME"))
+        self.assertIsNone(node.find("COUNTRYOFRESIDENCE"))
         self.assertIsNone(node.find("GSTREGISTRATIONTYPE"))
         self.assertIsNone(node.find("PARTYPINCODE"))
         # The name-only fields still work exactly as before.

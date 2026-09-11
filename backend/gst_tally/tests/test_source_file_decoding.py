@@ -7,6 +7,7 @@ from django.test import TestCase
 from openpyxl import Workbook
 from rest_framework.test import APIClient
 
+from gst_tally.services import canonical_invoice
 from gst_tally.services.gstr2a_parser import parse as parse_gstr2a
 from gst_tally.services.import_service import import_file
 from gst_tally.services.source_preview import preview_file
@@ -67,31 +68,43 @@ class SourceFileDecodingTests(TestCase):
         preview = preview_file(stream("gstr2b.xlsx", xlsx_bytes()), "GSTR2B")
 
         self.assertEqual(preview["file_type"], "EXCEL")
-        self.assertEqual(preview["rows"][0][0], SUPPLIER_GSTIN)
-        self.assertIn("தமிழ் Traders", preview["rows"][0])
+        self.assertEqual(preview["rows"][0]["customer_gstin"], SUPPLIER_GSTIN)
         assert_no_garbled(self, preview)
+
+        # supplier_name isn't part of the 13-column canonical preview grid,
+        # but it's still parsed and must decode correctly -- checked at the
+        # parser layer that source_preview.py's row selection sits on top of.
+        rows, _ = canonical_invoice.parse_excel(stream("gstr2b.xlsx", xlsx_bytes()), "GSTR2B")
+        self.assertEqual(rows[0]["supplier_name"], "தமிழ் Traders")
+        assert_no_garbled(self, rows)
 
     def test_csv_preview_decodes_utf8_text(self):
         preview = preview_file(stream("gstr2a.csv", csv_bytes()), "GSTR2A")
 
         self.assertEqual(preview["file_type"], "CSV")
-        self.assertEqual(preview["rows"][0][0], SUPPLIER_GSTIN)
-        self.assertIn("தமிழ் Traders", preview["rows"][0])
+        self.assertEqual(preview["rows"][0]["customer_gstin"], SUPPLIER_GSTIN)
         assert_no_garbled(self, preview)
+
+        rows, _ = canonical_invoice.parse_csv(stream("gstr2a.csv", csv_bytes()), "GSTR2A")
+        self.assertEqual(rows[0]["supplier_name"], "தமிழ் Traders")
+        assert_no_garbled(self, rows)
 
     def test_csv_preview_decodes_utf8_bom_text(self):
         preview = preview_file(stream("gstr2a.csv", csv_bytes(b"\xef\xbb\xbf")), "GSTR2A")
 
         self.assertEqual(preview["file_type"], "CSV")
-        self.assertEqual(preview["columns"][0], "GSTIN of supplier")
-        self.assertIn("தமிழ் Traders", preview["rows"][0])
+        self.assertEqual(preview["columns"][1]["label"], "Customer GSTIN")
         assert_no_garbled(self, preview)
+
+        rows, _ = canonical_invoice.parse_csv(stream("gstr2a.csv", csv_bytes(b"\xef\xbb\xbf")), "GSTR2A")
+        self.assertEqual(rows[0]["supplier_name"], "தமிழ் Traders")
+        assert_no_garbled(self, rows)
 
     def test_json_preview_decodes_utf8_bom_and_returns_parsed_rows(self):
         preview = preview_file(stream("gstr1.json", json_bytes(b"\xef\xbb\xbf")), "GSTR1")
 
         self.assertEqual(preview["file_type"], "JSON")
-        self.assertIn(SUPPLIER_GSTIN, preview["rows"][0])
+        self.assertEqual(preview["rows"][0]["customer_gstin"], SUPPLIER_GSTIN)
         self.assertIsInstance(preview["rows"], list)
         assert_no_garbled(self, preview)
 

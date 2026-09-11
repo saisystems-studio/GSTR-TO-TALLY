@@ -18,17 +18,25 @@ def env_bool(name, default=False):
 
 SECRET_KEY = env("DJANGO_SECRET_KEY", "5p!!e4hr8to5&b#&lo6hflix1mcii!drg3&y*qhu-xx-##q-jx")
 DEBUG = env("DJANGO_DEBUG", "True").lower() == "true"
+APP_VERSION = env("APP_VERSION")
+TERMS_LAST_UPDATED = env("TERMS_LAST_UPDATED", "2026-09-09")
 ALLOWED_HOSTS = [x.strip() for x in env("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if x.strip()]
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
-    "corsheaders", "rest_framework", "rest_framework_simplejwt.token_blacklist", "gst_tally",
+    "corsheaders", "rest_framework", "gst_tally", "subscriptions",
+    "superadmin",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware", "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware", "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware", "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware", "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Additive only -- gates just the /api/gst-tally/ and /api/gst/lookup|sandbox/
+    # prefixes (see subscriptions/middleware.py's PROTECTED_PREFIXES); every
+    # other existing route (auth, admin, this app's own endpoints) is
+    # completely untouched by it.
+    "subscriptions.middleware.SubscriptionEnforcementMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True,
@@ -69,13 +77,32 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser", "rest_framework.parsers.FormParser", "rest_framework.parsers.MultiPartParser"],
     "DEFAULT_RENDERER_CLASSES": ["gst_tally.renderers.UTF8JSONRenderer"],
+    "EXCEPTION_HANDLER": "config.exceptions.exception_handler",
 }
+# Session-style JWT, no server-side blacklist: an access token authenticates
+# requests for its own lifetime; while the refresh token is still valid the
+# frontend silently exchanges it for a new access token (see
+# authApi.js::authenticatedFetch/refreshAccess) so an active user is never
+# interrupted. Each successful refresh issues a brand-new refresh token
+# (ROTATE_REFRESH_TOKENS) without blacklisting the old one -- once the
+# refresh token itself expires (30 days of no activity), the user must log
+# in again and gets completely new tokens.
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
 }
+# Defaults to printing emails to the console when no SMTP host is
+# configured, so the forgot-password flow works out of the box in dev
+# without requiring real mail credentials.
+EMAIL_HOST = env("EMAIL_HOST", "")
+EMAIL_BACKEND = env("EMAIL_BACKEND") or ("django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST else "django.core.mail.backends.console.EmailBackend")
+EMAIL_PORT = int(env("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "no-reply@gstr2tally.local")
+
 DATA_UPLOAD_MAX_MEMORY_SIZE = int(env("MAX_UPLOAD_BYTES", str(15 * 1024 * 1024)))
 TALLY_HOST = env("TALLY_HOST", "127.0.0.1").removeprefix("http://").removeprefix("https://").rstrip("/")
 TALLY_PORT = int(env("TALLY_PORT", "9000"))
@@ -86,6 +113,10 @@ TALLY_VERSION = env("TALLY_VERSION", "7.1").strip()
 TALLY_TIMEOUT = int(env("TALLY_TIMEOUT", "30"))
 TALLY_CONNECT_TIMEOUT = int(env("TALLY_CONNECT_TIMEOUT", "3"))
 TALLY_READ_TIMEOUT = int(env("TALLY_READ_TIMEOUT", "12"))
+TALLY_HTTP_KEEPALIVE = env("TALLY_HTTP_KEEPALIVE", "true").lower() in {"1", "true", "yes", "on"}
+TALLY_IMPORT_PROGRESS_INTERVAL = float(env("TALLY_IMPORT_PROGRESS_INTERVAL", "0.5"))
+TALLY_IMPORT_BATCH_SIZE = int(env("TALLY_IMPORT_BATCH_SIZE", "500"))
+TALLY_IMPORT_MAX_XML_BYTES = int(env("TALLY_IMPORT_MAX_XML_BYTES", str(8 * 1024 * 1024)))
 TALLY_ENABLED = env_bool("TALLY_ENABLED", True)
 TALLY_DRY_RUN = env_bool("TALLY_DRY_RUN", True)
 TALLY_EXPECTED_COMPANY = env("TALLY_EXPECTED_COMPANY")
@@ -120,6 +151,12 @@ SANDBOX_API_SECRET = env("SANDBOX_API_SECRET")
 SANDBOX_API_VERSION = env("SANDBOX_API_VERSION", "1.0.0")
 SANDBOX_ACCESS_TOKEN_TTL = int(env("SANDBOX_ACCESS_TOKEN_TTL", "300"))
 SANDBOX_TAXPAYER_SESSION_TTL = int(env("SANDBOX_TAXPAYER_SESSION_TTL", "21600"))
+# How long an account-level /authenticate rejection (403 -- quota/subscription/
+# permission, never a per-request token issue) is remembered before the next
+# GSTIN lookup is allowed to hit Sandbox again. Without this, a batch with N
+# unique GSTINs makes N separate failing /authenticate calls once the account
+# is blocked, instead of discovering the block once and reusing it.
+SANDBOX_AUTH_FAILURE_COOLDOWN = int(env("SANDBOX_AUTH_FAILURE_COOLDOWN", "60"))
 JAMKU_BASE_URL = env("JAMKU_BASE_URL", "https://gst-return-status.p.rapidapi.com")
 JAMKU_GSTIN_ENDPOINT = env("JAMKU_GSTIN_ENDPOINT", "/free/gstin/{gstin}")
 JAMKU_RAPIDAPI_HOST = env("JAMKU_RAPIDAPI_HOST", "gst-return-status.p.rapidapi.com")

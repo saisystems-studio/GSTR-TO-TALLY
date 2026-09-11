@@ -5,6 +5,8 @@ from gst_tally.views import (GSTLookupBulkView, GSTLookupStatusView, GSTLookupVi
                              SandboxStatusView, SandboxVerifyOTPView)
 
 urlpatterns = [path("admin/", admin.site.urls), path("api/auth/", include("gst_tally.auth_urls")),
+               path("api/subscriptions/", include("subscriptions.urls")),
+               path("api/superadmin/", include("superadmin.urls")),
                path("api/gst/lookup/status/", GSTLookupStatusView.as_view()),
                path("api/gst/lookup/bulk/", GSTLookupBulkView.as_view()),
                path("api/gst/lookup/<str:gstin>/", GSTLookupView.as_view()),

@@ -1,15 +1,16 @@
 """Regression tests for two Step 6 Purchase-voucher/party-master gaps:
 
-1. Every taxable "GST Purchase NN%" ledger line must carry its own GST rate
-   metadata -- RATEOFINVOICETAX/BASICRATEOFINVOICETAX (Tally's Rate/Per
-   binding for the Accounting Invoice screen) plus the CGST/SGST/IGST
-   RATEDETAILS breakup -- independently of every other allocation on the
-   same voucher, so a mixed-rate invoice never has one rate bleed into
-   another row. These are the flat TYPE="Number" elements Tally's own native
-   import uses; an earlier attempt at this fix added a separate plain
-   <RATE>NN%</RATE> tag and re-wrapped RATEOFINVOICETAX/BASICRATEOFINVOICETAX
-   in a legacy ".LIST" collection, but that was never confirmed against a
-   real Tally re-read and is not what voucher_builder.py sends.
+1. Every taxable "GST Purchase NN%" ledger line must carry its own taxable
+   AMOUNT and must NOT carry any RATEOFINVOICETAX/BASICRATEOFINVOICETAX/RATE/
+   GSTTAXRATE/RATEDETAILS.LIST rate metadata -- sending any of those at the
+   voucher's ledger-entry level makes Tally's GSTR-3B Tax Analysis classify
+   the transaction's "Source of GST Rate Details" as "As per Voucher"
+   instead of "As per Ledger", even when the values match the ledger master
+   exactly. Each rate must be resolved purely from the named GST Purchase/
+   Sales ledger's own master, which is why a mixed-rate invoice never has
+   one rate bleed into another row: each allocation is routed to its own
+   distinctly-named ledger (e.g. "GST Purchase 5%" vs "GST Purchase 18%"),
+   not distinguished by a voucher-level rate override.
 
 2. Party master field population (State/Country/GST Registration Type/
    GSTIN/UIN/Place of Supply), and that an existing party with incomplete
@@ -35,11 +36,13 @@ def _purchase_voucher(rate_allocations, tax_allocations, invoice_total, rounding
 
 class FirstTaxableLedgerRateTests(SimpleTestCase):
     """(1) Every taxable GST Purchase/Sales ledger line -- first, middle, or
-    only one included -- must carry its own RATEOFINVOICETAX/
-    BASICRATEOFINVOICETAX (Tally's Rate/Per binding) and RATEDETAILS breakup,
-    independently of every other allocation on the same voucher."""
+    only one included -- must carry no voucher-level GST rate override, and
+    must be routed to its own distinctly-named ledger, independently of
+    every other allocation on the same voucher."""
 
-    def test_single_rate_purchase_voucher_carries_rate_on_its_only_taxable_line(self):
+    RATE_TAGS = ("RATE", "RATEOFINVOICETAX", "BASICRATEOFINVOICETAX", "GSTTAXRATE")
+
+    def test_single_rate_purchase_voucher_carries_no_rate_override_on_its_only_taxable_line(self):
         voucher = _purchase_voucher(
             rate_allocations=[{"gst_rate": "18", "sales_ledger": "GST Purchase 18%", "taxable_value": "7860.00"}],
             tax_allocations=[{"ledger": "Input CGST 9%", "amount": "707.40"},
@@ -48,12 +51,12 @@ class FirstTaxableLedgerRateTests(SimpleTestCase):
         xml = ET.fromstring(build_voucher(voucher, "SRI MAHALAKSHMI TRADERS,"))
         entry = next(e for e in xml.findall(".//LEDGERENTRIES.LIST") if e.findtext("LEDGERNAME") == "GST Purchase 18%")
 
-        self.assertEqual(entry.findtext("RATEOFINVOICETAX"), "18")
-        self.assertEqual(entry.findtext("BASICRATEOFINVOICETAX"), "18")
-        self.assertEqual(entry.findtext("GSTTAXRATE"), "18")
+        for tag in self.RATE_TAGS:
+            self.assertIsNone(entry.find(tag))
+        self.assertEqual(entry.findall("RATEDETAILS.LIST"), [])
         self.assertEqual(entry.findtext("AMOUNT"), "-7860.00")
 
-    def test_first_of_multiple_taxable_rate_lines_also_carries_rate(self):
+    def test_first_of_multiple_taxable_rate_lines_also_carries_no_rate_override(self):
         voucher = _purchase_voucher(
             rate_allocations=[
                 {"gst_rate": "5", "sales_ledger": "GST Purchase 5%", "taxable_value": "190.00"},
@@ -69,15 +72,17 @@ class FirstTaxableLedgerRateTests(SimpleTestCase):
         # rate_allocations are written in ascending-rate order; "GST Purchase 5%" is first.
         first_taxable = entries[1]
         self.assertEqual(first_taxable.findtext("LEDGERNAME"), "GST Purchase 5%")
-        self.assertEqual(first_taxable.findtext("RATEOFINVOICETAX"), "5")
-        self.assertEqual(first_taxable.findtext("GSTTAXRATE"), "5")
+        self.assertEqual(first_taxable.findtext("AMOUNT"), "-190.00")
+        for tag in self.RATE_TAGS:
+            self.assertIsNone(first_taxable.find(tag))
 
         second_taxable = entries[2]
         self.assertEqual(second_taxable.findtext("LEDGERNAME"), "GST Purchase 18%")
-        self.assertEqual(second_taxable.findtext("RATEOFINVOICETAX"), "18")
-        self.assertEqual(second_taxable.findtext("GSTTAXRATE"), "18")
+        self.assertEqual(second_taxable.findtext("AMOUNT"), "-5960.00")
+        for tag in self.RATE_TAGS:
+            self.assertIsNone(second_taxable.find(tag))
 
-    def test_all_supported_rates_carry_their_own_rate(self):
+    def test_all_supported_rates_carry_no_rate_override(self):
         for rate in ("1", "3", "5", "12", "18", "28", "40"):
             with self.subTest(rate=rate):
                 voucher = _purchase_voucher(
@@ -85,8 +90,10 @@ class FirstTaxableLedgerRateTests(SimpleTestCase):
                     tax_allocations=[], invoice_total="1000.00")
                 xml = ET.fromstring(build_voucher(voucher, "SRI MAHALAKSHMI TRADERS,"))
                 entry = next(e for e in xml.findall(".//LEDGERENTRIES.LIST") if e.findtext("LEDGERNAME") == f"GST Purchase {rate}%")
-                self.assertEqual(entry.findtext("RATEOFINVOICETAX"), rate)
-                self.assertEqual(entry.findtext("GSTTAXRATE"), rate)
+                for tag in self.RATE_TAGS:
+                    self.assertIsNone(entry.find(tag))
+                self.assertEqual(entry.findtext("GSTOVERRIDDEN"), "No")
+                self.assertEqual(entry.findtext("ISGSTASSESSABLEVALUEOVERRIDDEN"), "No")
 
     def test_rate_field_does_not_change_the_written_amount_or_total(self):
         """The fix is additive metadata only -- amounts/totals are untouched."""

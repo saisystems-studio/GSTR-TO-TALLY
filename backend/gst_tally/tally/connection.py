@@ -35,10 +35,27 @@ def local_port_listening(host, port):
     except Exception:
         return None
     needles = {f"127.0.0.1:{int(port)}", f"0.0.0.0:{int(port)}", f"[::]:{int(port)}", f"[::1]:{int(port)}"}
-    for line in output.splitlines():
-        if "LISTENING" in line.upper() and any(needle in line for needle in needles):
-            return True
-        return False
+    # Real `netstat -ano` output always starts with header/unrelated lines --
+    # the match must scan every line before concluding "not listening", not
+    # just the first one.
+    return any("LISTENING" in line.upper() and any(needle in line for needle in needles)
+               for line in output.splitlines())
+
+
+def tally_process_running(host):
+    """Best-effort local process check (equivalent to `tasklist | findstr tally`).
+
+    Only meaningful when Tally would run on this same machine -- returns None
+    (unknown, never "not running") for a remote host or when `tasklist` itself
+    can't be run, so callers never mistake "can't tell" for a positive result.
+    """
+    if not _is_local_host(host):
+        return None
+    try:
+        output = subprocess.check_output(["tasklist"], text=True, stderr=subprocess.DEVNULL)
+    except Exception:
+        return None
+    return any("tally" in line.casefold() for line in output.splitlines())
 
 
 def _company_from_response(raw):
@@ -134,7 +151,39 @@ def detect_tally_version_and_probe_json(client):
     return parse_tally_version(settings.TALLY_VERSION), "CONFIGURED_FALLBACK", None, http_reached
 
 
+def _log_tally_connection_check(result):
+    print("=== TALLY CONNECTION CHECK ===")
+    print("Configured Host:", settings.TALLY_HOST)
+    print("Configured Port:", settings.TALLY_PORT)
+    print("Resolved Host:", result.get("host"))
+    print("Resolved Port:", result.get("port"))
+    print("TCP Connected:", result.get("tcp_connected"))
+    print("HTTP Connected:", result.get("http_connected"))
+    print("ODBC Connected:", result.get("odbc_connected"))
+    print("Read Connected:", result.get("read_connected"))
+    print("Requested Transport:", result.get("requested_transport"))
+    print("Actual Transport:", result.get("actual_transport"))
+    print("JSON Connected:", result.get("json_connected"))
+    print("XML Connected:", result.get("xml_connected"))
+    print("Fallback Used:", result.get("fallback_used"))
+    print("Fallback Reason:", result.get("fallback_reason"))
+    print("Tally Process Detected:", result.get("tally_process_detected"))
+    print("Port Listening:", result.get("port_listening"))
+    print("Company Open:", result.get("company_open"))
+    print("Detected Company:", result.get("company_name"))
+    print("Detected GSTIN:", result.get("company_gstin"))
+    print("Can Import:", result.get("can_import"))
+    print("Error Code:", result.get("error_code"))
+    print("Error Message:", result.get("error_message"))
+
+
 def step3_connection_check(client=None, odbc_connect=None):
+    result = _step3_connection_check(client=client, odbc_connect=odbc_connect)
+    _log_tally_connection_check(result)
+    return result
+
+
+def _step3_connection_check(client=None, odbc_connect=None):
     """Real Step 3 Tally connectivity diagnostics.
 
     This check is intentionally read-only and not gated by ``TALLY_DRY_RUN``:
@@ -163,19 +212,30 @@ def step3_connection_check(client=None, odbc_connect=None):
               "version_source": "", "transport_mode": "", "requested_transport": "", "actual_transport": "",
               "json_supported_by_version": False, "json_capability_confirmed": False,
               "json_connected": False, "xml_connected": False,
-              "fallback_used": False, "fallback_reason": ""}
-    logger.info("Step 3 Tally connection diagnostics: backend_runtime=%s configured_tally_host=%s configured_tally_port=%s",
-                "windows" if "\\" in __file__ else "unknown", host, port)
+              "fallback_used": False, "fallback_reason": "",
+              "tally_process_detected": None, "port_listening": None}
+    logger.info("Step 3 Tally connection diagnostics: configured_tally_host=%s configured_tally_port=%s resolved_host=%s resolved_port=%s",
+                settings.TALLY_HOST, settings.TALLY_PORT, host, port)
     if not tcp_connected:
         # A raw TCP failure means neither HTTP nor ODBC is attempted -- there
         # is nothing to gain from trying either. When we can positively prove
         # nothing is listening on the port (local_port_listening() is False,
-        # not just "unknown"), refine the code/message to name that exactly;
-        # otherwise report tcp_probe's own code/message unrefined.
+        # not just "unknown"), refine the code/message to name that exactly --
+        # and further distinguish "Tally isn't even running" from "Tally is
+        # running but its Connectivity/HTTP-ODBC server isn't listening on
+        # this port" (e.g. the setting was changed but Tally wasn't restarted).
         code = _step3_error_code(tcp_code)
-        if code == "TALLY_CONNECTION_REFUSED" and local_port_listening(host, port) is False:
-            code = "TALLY_PORT_NOT_LISTENING"
-            tcp_message = f"No process is listening on {host}:{port}."
+        port_listening = local_port_listening(host, port)
+        process_detected = tally_process_running(host)
+        result["port_listening"] = port_listening
+        result["tally_process_detected"] = process_detected
+        if code == "TALLY_CONNECTION_REFUSED" and port_listening is False:
+            if process_detected is False:
+                code = "TALLY_PROCESS_NOT_RUNNING"
+                tcp_message = f"TallyPrime does not appear to be running on {host}. Start TallyPrime and open a company."
+            else:
+                code = "TALLY_PORT_NOT_LISTENING"
+                tcp_message = f"No process is listening on {host}:{port}."
         result.update(error_code=code, error_message=tcp_message, http_error=tcp_message,
                       message=tcp_message, reachable=False, tally_available=False,
                       failure_type=code, can_import=False)
@@ -473,11 +533,15 @@ def _ledger_details_from_json(payload, name, raw_text=""):
                 rate_rows.append(rate_row)
 
     rates = {}
+    rate_valuation_types = {}
     for row in rate_rows:
         head = _gst_duty_head_key(_json_scalar(row.get("gstratedutyhead")))
         rate = _json_scalar(row.get("gstrate"))
         if head and rate:
             rates[head] = rate
+        valuation_type = _json_scalar(row.get("gstratevaluationtype"))
+        if head and valuation_type:
+            rate_valuation_types[head] = valuation_type
 
     direct_rate = _json_scalar(node.get("rateoftaxcalculation"))
 
@@ -568,7 +632,9 @@ def _ledger_details_from_json(payload, name, raw_text=""):
             _json_scalar(node.get("pincode"))
             or _json_scalar(mailing.get("pincode"))
         ),
+        "address": _json_scalar(mailing.get("address")),
         "gst_rates": rates,
+        "gst_rate_valuation_types": rate_valuation_types,
         "master_id": _json_scalar(node.get("masterid")),
         "raw": raw_text,
         "read_transport": "JSON",
@@ -704,11 +770,15 @@ def _ledger_details_via_xml(name, company="", client=None):
         else []
     )
 
+    rate_valuation_types = {}
     for rate in rate_details_nodes:
         head = _gst_duty_head_key(rate.findtext("GSTRATEDUTYHEAD"))
         value = (rate.findtext("GSTRATE") or "").strip()
         if head and value:
             rates[head] = value
+        valuation_type = (rate.findtext("GSTRATEVALUATIONTYPE") or "").strip()
+        if head and valuation_type:
+            rate_valuation_types[head] = valuation_type
 
     direct_rate = (node.findtext("RATEOFTAXCALCULATION") or "").strip()
     gst_rate = (
@@ -806,7 +876,14 @@ def _ledger_details_via_xml(name, company="", client=None):
             or node.findtext(".//LEDMAILINGDETAILS.LIST/PINCODE")
             or ""
         ).strip(),
+        "address": ", ".join(
+            text for text in (
+                (elem.text or "").strip()
+                for elem in node.findall(".//LEDMAILINGDETAILS.LIST/ADDRESS.LIST/ADDRESS")
+            ) if text
+        ),
         "gst_rates": rates,
+        "gst_rate_valuation_types": rate_valuation_types,
         "master_id": (node.findtext("MASTERID") or "").strip(),
         "raw": text,
         "read_transport": "XML",

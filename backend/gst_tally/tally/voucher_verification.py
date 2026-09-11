@@ -6,6 +6,7 @@ needed for idempotency; the standard Day Book export corroborates it. Neither
 read shares an envelope with the master or voucher *import* builders.
 """
 import logging
+import time
 from decimal import Decimal, InvalidOperation
 import re
 
@@ -15,6 +16,11 @@ from .read_parsers import parse_daybook_export, parse_voucher_query_response
 from .client import TallyClient
 
 logger = logging.getLogger(__name__)
+
+# Read-after-write visibility lag only -- the write itself already happened
+# and is never repeated here. First attempt is immediate (delay 0); each
+# retry after that only re-runs the same read-only query-back.
+QUERY_BACK_RETRY_DELAYS = (0, 0.2, 0.5, 1.0)
 
 # Kept importable for callers/tests that still refer to the old builder name.
 build_day_book_request = build_daybook_query_xml
@@ -34,7 +40,11 @@ def _log_response(operation, parsed):
 
 
 def _read(client, payload, parser, company, operation):
+    raw_request = payload.decode("utf-8", "replace") if isinstance(payload, bytes) else str(payload or "")
     parsed = parser(client.post(payload), company, operation)
+    # getattr, not a direct attribute access: some callers (tests) pass a
+    # minimal read-only client double that never sets this.
+    parsed = {**parsed, "raw_request": raw_request, "http_status": getattr(client, "last_http_status", None)}
     _log_response(operation, parsed)
     return parsed
 
@@ -55,7 +65,8 @@ def query_vouchers(client, company, from_date, to_date=None, operation="voucher_
     reads.append({"source": collection["source"], "query_valid": collection["query_valid"],
                   "kind": collection["kind"], "request": collection["request"],
                   "report": collection["report"], "company": collection["company"],
-                  "vouchers": len(collection["vouchers"]), "reason": collection["reason"]})
+                  "vouchers": len(collection["vouchers"]), "reason": collection["reason"],
+                  "request_payload": collection["raw_request"], "http_status": collection["http_status"]})
 
     # The Day Book export corroborates an empty collection and stands in for it
     # when the collection itself is not answered. It is never used to invent a
@@ -71,7 +82,8 @@ def query_vouchers(client, company, from_date, to_date=None, operation="voucher_
         reads.append({"source": daybook["source"], "query_valid": daybook["query_valid"],
                       "kind": daybook["kind"], "request": daybook["request"],
                       "report": daybook["report"], "company": daybook["company"],
-                      "vouchers": len(daybook["vouchers"]), "reason": daybook["reason"]})
+                      "vouchers": len(daybook["vouchers"]), "reason": daybook["reason"],
+                      "request_payload": daybook["raw_request"], "http_status": daybook["http_status"]})
         if collection["query_valid"] and daybook["query_valid"]:
             merged, source, valid, reason = _merge(collection["vouchers"], daybook["vouchers"]), "VOUCHER_COLLECTION+DAY_BOOK", True, ""
             authoritative = collection
@@ -92,6 +104,7 @@ def query_vouchers(client, company, from_date, to_date=None, operation="voucher_
             "request": authoritative["request"], "report": authoritative["report"],
             "company": authoritative["company"], "company_match": authoritative["company_match"],
             "kind": authoritative["kind"], "raw": authoritative["raw"], "reads": reads,
+            "request_payload": authoritative["raw_request"], "http_status": authoritative["http_status"],
             "from_date": tally_date(from_date), "to_date": tally_date(to_date)}
 
 
@@ -102,16 +115,25 @@ def _merge(primary, secondary):
     return [*primary, *extra]
 
 
-def find_voucher(vouchers, voucher):
+def find_voucher(vouchers, voucher, expected_master_id=None):
     """Return the Tally record matching a source invoice, or ``None``.
 
     Voucher number/reference plus voucher type is the identity. The party ledger
     is compared only when Tally actually returned one, because some export paths
     omit it and an absent field must not read as a mismatch.
+
+    ``expected_master_id`` is the secondary identity Tally itself already gave
+    us (LASTVCHID/MASTERID from the write response) -- used only when the
+    voucher-number/reference match fails (e.g. Tally auto-renumbered the
+    voucher), and still cross-checked against voucher type before being
+    accepted, so it can never match an unrelated voucher that merely shares
+    a MasterID coincidentally with a stale/reused expected value.
     """
     wanted_number = str(voucher.get("invoice_number", "")).strip().casefold()
     wanted_type = str(voucher.get("voucher_type", "Sales")).strip().casefold()
     wanted_party = str(voucher.get("party", {}).get("name", "")).strip().casefold()
+    wanted_master_id = str(expected_master_id or "").strip()
+    by_master_id = None
     for record in vouchers:
         if record.get("cancelled"):
             continue
@@ -119,13 +141,17 @@ def find_voucher(vouchers, voucher):
         reference = record["reference"].strip().casefold()
         party = record["party"].strip().casefold()
         if number != wanted_number and reference != wanted_number:
+            if (wanted_master_id and not by_master_id
+                    and str(record.get("master_id") or "").strip() == wanted_master_id
+                    and record["voucher_type"].strip().casefold() == wanted_type):
+                by_master_id = record
             continue
         if record["voucher_type"].strip().casefold() != wanted_type:
             continue
         if wanted_party and party and party != wanted_party:
             continue
         return record
-    return None
+    return by_master_id
 
 
 def index_vouchers(vouchers):
@@ -410,26 +436,64 @@ def _verification_details(voucher, match):
     return diagnostics
 
 
-def verify_voucher(client, company, voucher):
-    """Query-back for a single voucher on its own date. Read/export only."""
+def _query_back_diagnostics(company, voucher, result, expected_master_id, match=None):
+    """Exactly the fields the task spec's DIAGNOSTICS section names, so a real
+    "Tally says CREATED=1 but query-back can't find it" case can be pinned
+    down to API auth/endpoint, response parsing, field mapping, or (if this
+    all looks right) a genuine Tally-side visibility/indexing delay."""
+    reads = result.get("reads") or []
+    returned_numbers = sorted({row.get("voucher_number", "") for row in (result.get("vouchers") or []) if row.get("voucher_number")})
+    return {
+        "query_back_company": company,
+        "query_back_from_date": result.get("from_date", ""),
+        "query_back_to_date": result.get("to_date", ""),
+        "query_back_voucher_type": voucher.get("voucher_type", "Sales"),
+        "query_back_voucher_number": voucher.get("invoice_number", ""),
+        "query_back_expected_master_id": str(expected_master_id or ""),
+        "raw_query_back_request": result.get("request_payload", ""),
+        "raw_query_back_response": result.get("raw", ""),
+        "query_back_http_status": result.get("http_status"),
+        "query_back_response_length": len(result.get("raw") or ""),
+        "query_back_voucher_count": len(result.get("vouchers") or []),
+        "returned_voucher_numbers": returned_numbers,
+        "matched_voucher_number": (match or {}).get("voucher_number", ""),
+        "matched_master_id": (match or {}).get("master_id", ""),
+        "matched_date": (match or {}).get("date", ""),
+        "matched_party": (match or {}).get("party", ""),
+        "query_back_source": result.get("source", ""),
+        "query_back_reads": reads,
+    }
+
+
+def verify_voucher(client, company, voucher, expected_master_id=None):
+    """Query-back for a single voucher on its own date. Read/export only.
+
+    ``expected_master_id`` is the LASTVCHID/MASTERID Tally's write response
+    already returned -- passed through to find_voucher as a secondary match
+    when the voucher-number/reference lookup misses (task spec Section 4).
+    """
     voucher_type = voucher.get("voucher_type", "Sales")
     result = query_vouchers(client, company, voucher["invoice_date"],
                             operation=f"voucher_query_back:{voucher.get('invoice_number', '')}")
     if not result["query_valid"]:
         return {"found": False, "query_valid": False, "identifier": "", "reason": result["reason"],
-                "source": "INVALID_QUERY_RESPONSE", "raw": result["raw"], "reads": result["reads"]}
-    match = find_voucher(result["vouchers"], voucher)
+                "source": "INVALID_QUERY_RESPONSE", "raw": result["raw"], "reads": result["reads"],
+                "query_back_diagnostics": _query_back_diagnostics(company, voucher, result, expected_master_id)}
+    match = find_voucher(result["vouchers"], voucher, expected_master_id=expected_master_id)
     if not match:
         return {"found": False, "query_valid": True, "identifier": "",
                 "reason": f"{voucher_type} voucher was not found in the Tally voucher query for {result['from_date']}",
-                "source": result["source"], "raw": result["raw"], "reads": result["reads"]}
+                "source": result["source"], "raw": result["raw"], "reads": result["reads"],
+                "query_back_diagnostics": _query_back_diagnostics(company, voucher, result, expected_master_id)}
     match = {**match, "ledger_entries": _resolve_entry_rates(client, company, match)}
     diagnostics = _verification_details(voucher, match)
+    query_back_diagnostics = _query_back_diagnostics(company, voucher, result, expected_master_id, match)
     if not diagnostics["matched"]:
         logger.warning("Tally voucher verification mismatch: %s", diagnostics)
         return {"found": False, "query_valid": True, "identifier": match["identifier"],
                 "reason": diagnostics["mismatch_reason"],
-                **diagnostics, "source": result["source"], "raw": result["raw"], "reads": result["reads"]}
+                **diagnostics, "source": result["source"], "raw": result["raw"], "reads": result["reads"],
+                "query_back_diagnostics": query_back_diagnostics}
     return {"found": True, "query_valid": True, "identifier": match["identifier"],
             "voucher_type": match["voucher_type"], "party": match["party"],
             "voucher_number": match["voucher_number"], "source_reference": match["reference"],
@@ -437,4 +501,36 @@ def verify_voucher(client, company, voucher):
             "taxable_allocations": match.get("taxable_allocations", []),
             **diagnostics,
             "reason": f"{voucher_type} voucher confirmed by Tally voucher query ({result['source']})",
-            "source": result["source"], "raw": result["raw"], "reads": result["reads"]}
+            "source": result["source"], "raw": result["raw"], "reads": result["reads"],
+            "query_back_diagnostics": query_back_diagnostics}
+
+
+def verify_voucher_with_retry(client, company, voucher, expected_master_id=None,
+                               delays=QUERY_BACK_RETRY_DELAYS, sleep=time.sleep):
+    """Query-back only, retried a few times for read-after-write visibility
+    lag (task spec Section 5). Every attempt is the exact same read-only
+    verify_voucher call -- the voucher XML is NEVER resent here, and this
+    function never triggers a write of any kind.
+
+    Stops early (without waiting out the rest of the backoff) once a real
+    Tally rejection/mismatch is confirmed (query_valid but genuinely not
+    matching), since more retries can't change a firm mismatch -- but keeps
+    retrying while the query itself is merely not yet returning the voucher
+    or the query envelope came back invalid (a transient read hiccup).
+    """
+    attempts = []
+    last = None
+    for index, delay in enumerate(delays):
+        if delay:
+            sleep(delay)
+        last = verify_voucher(client, company, voucher, expected_master_id=expected_master_id)
+        attempts.append({"attempt": index + 1, "delay_seconds": delay, "found": last.get("found"),
+                          "query_valid": last.get("query_valid"), "reason": last.get("reason")})
+        if last.get("found"):
+            break
+        if last.get("query_valid") and last.get("verification_difference"):
+            # A real Tally-side mismatch is final: no amount of additional
+            # read-after-write retries can repair a voucher that already exists
+            # but whose accounting details do not match the source invoice.
+            break
+    return {**(last or {}), "verification_attempts": attempts}

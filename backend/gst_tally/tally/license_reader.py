@@ -25,13 +25,22 @@ logger = logging.getLogger(__name__)
 
 UNAVAILABLE = "TALLY_LICENSE_DATA_UNAVAILABLE"
 LICENSE_FIELDS = ("SerialNumber", "IsGold", "IsSilver", "IsEducationalMode", "IsLicensedMode", "AdminEmailID")
+TAG_ALIASES = {
+    "SerialNumber": ("SERIALNUMBER", "SERIALNO", "SERIAL", "LICENSESERIALNUMBER"),
+    "IsGold": ("ISGOLD",),
+    "IsSilver": ("ISSILVER",),
+    "IsEducationalMode": ("ISEDUCATIONALMODE", "ISEDUCATIONAL"),
+    "IsLicensedMode": ("ISLICENSEDMODE", "TALLYSOFTWARESERVICES", "TSSSTATUS"),
+    "AdminEmailID": ("ADMINEMAILID", "LICENSEADMINISTRATOR", "ADMINISTRATOR"),
+}
 
 
-def _unavailable(reason):
-    logger.warning("[TALLY_LICENSE] license read unavailable: %s", reason)
+def _unavailable(reason, detail=""):
+    logger.warning("[TALLY_LICENSE] license read unavailable: %s detail=%s", reason, detail)
     return {"license_available": False, "serial_number": "", "edition": "",
             "tally_software_services": "", "license_administrator": "",
-            "license_verified": False, "license_error": UNAVAILABLE, "message": reason}
+            "license_verified": False, "license_error": UNAVAILABLE,
+            "license_error_detail": detail or reason, "message": reason}
 
 
 def _truthy(value):
@@ -52,28 +61,44 @@ def _normalize_tss(value):
     return normalized
 
 
+def _sanitized(text):
+    return " ".join(str(text or "").split())[:1000]
+
+
+def _find_value(root, param):
+    result = (root.findtext(".//DATA/RESULT") or root.findtext(".//RESULT") or "").strip()
+    if result:
+        return result, "RESULT"
+    aliases = TAG_ALIASES.get(param, ())
+    for element in root.iter():
+        tag = str(element.tag or "").split("}")[-1].upper()
+        if tag in aliases and element.text and element.text.strip():
+            return element.text.strip(), tag
+    return "", ""
+
+
 def _read_license_info_param(client, param):
     request = build_license_query_xml(param)
     request_xml = request.decode("utf-8", "replace") if isinstance(request, bytes) else str(request or "")
-    print("=== TALLY LICENSE REQUEST ===")
-    print(request_xml)
+    logger.debug("[TALLY_LICENSE] sending license request param=%s payload=%s", param, _sanitized(request_xml))
     raw = client.post(request)
+    http_status = getattr(client, "last_http_status", None)
     text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
-    print("=== TALLY LICENSE RAW RESPONSE ===")
-    print(text)
+    logger.debug("[TALLY_LICENSE] response param=%s http_status=%s body=%s", param, http_status, _sanitized(text))
     try:
         root = ET.fromstring(text)
-    except ET.ParseError:
-        logger.warning("[TALLY_LICENSE] invalid XML from Tally for %s. Raw: %s", param, text[:1000])
-        return "", text, False
+    except ET.ParseError as exc:
+        detail = f"XML parsing failed for {param}: {exc}."
+        logger.exception("[TALLY_LICENSE] %s Raw: %s", detail, _sanitized(text))
+        return "", text, False, detail
     status = (root.findtext(".//HEADER/STATUS") or "").strip()
     if status != "1":
-        logger.warning("[TALLY_LICENSE] unsuccessful Tally status for %s. Status: %s Raw: %s", param, status, text[:1000])
-        return "", text, False
-    result = (root.findtext(".//DATA/RESULT") or "").strip()
-    print("=== TALLY LICENSE PARSED RESULT ===")
-    print(result)
-    return result, text, True
+        detail = f"Tally returned status {status or 'blank'} for {param}."
+        logger.warning("[TALLY_LICENSE] %s Raw: %s", detail, _sanitized(text))
+        return "", text, False, detail
+    result, source_tag = _find_value(root, param)
+    logger.debug("[TALLY_LICENSE] parsed param=%s source_tag=%s present=%s", param, source_tag or "none", bool(result))
+    return result, text, True, "" if result else f"{param} returned an empty value."
 
 
 def read_tally_license(client=None):
@@ -96,18 +121,23 @@ def read_tally_license(client=None):
         values = {}
         raw_responses = {}
         statuses = {}
-        values["SerialNumber"], raw_responses["SerialNumber"], statuses["SerialNumber"] = _read_license_info_param(active_client, "SerialNumber")
+        details = {}
+        values["SerialNumber"], raw_responses["SerialNumber"], statuses["SerialNumber"], details["SerialNumber"] = _read_license_info_param(active_client, "SerialNumber")
         if not statuses.get("SerialNumber"):
-            return _unavailable("Tally returned a response that could not be parsed.")
+            return _unavailable("Tally returned a response that could not be parsed.", details.get("SerialNumber", "SerialNumber request failed."))
         if not values.get("SerialNumber", ""):
-            logger.warning("[TALLY_LICENSE] Tally response had no serial number. Raw: %s", raw_responses.get("SerialNumber", "")[:1000])
-            return _unavailable("Tally did not return a license serial number for the active instance.")
+            logger.warning("[TALLY_LICENSE] Tally response had no serial number. Raw: %s", _sanitized(raw_responses.get("SerialNumber", "")))
+            return _unavailable("Tally did not return a license serial number for the active instance.", details.get("SerialNumber", "SerialNumber returned an empty value."))
         for param in LICENSE_FIELDS:
             if param == "SerialNumber":
                 continue
-            values[param], raw_responses[param], statuses[param] = _read_license_info_param(active_client, param)
+            values[param], raw_responses[param], statuses[param], details[param] = _read_license_info_param(active_client, param)
     except TallyConnectionError as exc:
-        return _unavailable(f"Could not reach Tally to read license information ({exc.code}).")
+        logger.exception("[TALLY_LICENSE] connection failed while reading license")
+        return _unavailable("Could not reach Tally to read license information.", f"{exc.code}: {exc}")
+    except Exception as exc:
+        logger.exception("[TALLY_LICENSE] unexpected failure while reading license")
+        return _unavailable("Connected to Tally, but license information could not be read.", str(exc))
     serial = values.get("SerialNumber", "")
     administrator = values.get("AdminEmailID", "")
     is_gold = values.get("IsGold", "")
@@ -116,10 +146,8 @@ def read_tally_license(client=None):
     is_licensed = values.get("IsLicensedMode", "")
     edition = "Gold" if _truthy(is_gold) else "Silver" if _truthy(is_silver) else "Educational" if _truthy(is_educational) else ""
     tally_software_services = _normalize_tss(is_licensed)
-    print("serial_number =", serial)
-    print("edition =", edition)
-    print("tss =", is_licensed)
-    print("license_administrator =", administrator)
+    logger.debug("[TALLY_LICENSE] fields serial_present=%s edition_present=%s tss_present=%s administrator_present=%s",
+                 bool(serial), bool(edition), bool(tally_software_services), bool(administrator))
     return {"license_available": True, "serial_number": serial, "edition": edition,
             "tally_software_services": tally_software_services, "license_administrator": administrator,
-            "license_verified": None, "license_error": None, "message": ""}
+            "license_verified": None, "license_error": None, "license_error_detail": "", "message": ""}

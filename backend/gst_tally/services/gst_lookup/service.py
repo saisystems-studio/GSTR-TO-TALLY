@@ -114,7 +114,8 @@ class GSTLookupService:
 
     def __init__(self, provider): self.provider = provider
     def lookup(self, gstin, **context):
-        result = self.provider.lookup(gstin, **context) if context else self.provider.lookup(gstin)
+        cleaned = {key: value for key, value in context.items() if value not in (None, False, "", [], {})}
+        result = self.provider.lookup(gstin, **cleaned) if cleaned else self.provider.lookup(gstin)
         return result.as_dict()
 
     @staticmethod
@@ -144,7 +145,11 @@ class GSTLookupService:
     def lookup_cached(cls, gstin, fallback_party_name=None, force_refresh=False, allow_fallback=True, company_gstin=""):
         existing = GSTParty.objects.filter(gstin=gstin).first()
         fresh_after = timezone.now() - timedelta(days=settings.GST_PARTY_FRESH_DAYS)
-        has_name = existing and (has_usable_text(existing.trade_name) or has_usable_text(existing.legal_name))
+        existing_gstin = str(getattr(existing, "gstin", "") or gstin).strip().upper()
+        has_name = existing and (
+            (has_usable_text(existing.trade_name) and str(existing.trade_name).strip().upper() != existing_gstin) or
+            (has_usable_text(existing.legal_name) and str(existing.legal_name).strip().upper() != existing_gstin)
+        )
         has_address = existing and has_usable_text(existing.principal_place_of_business)
         sandbox_mode = str(settings.GST_LOOKUP_PROVIDER or settings.GST_LOOKUP_PRIMARY_PROVIDER).strip().lower() == "sandbox"
         has_registration = existing and (has_usable_text(existing.registration_status) or has_usable_text(existing.taxpayer_type))
@@ -185,13 +190,25 @@ class GSTLookupService:
                                    lookup_ready=bool(sandbox_status.get("lookup_ready")),
                                    lookup_failed=bool(sandbox_status.get("lookup_failed")))
         try:
-            data = primary_service.lookup(gstin, company_gstin=company_gstin) if primary_name == "sandbox" else primary_service.lookup(gstin)
+            # force_refresh here also means "bypass a cached account-level
+            # block" (see SandboxGSTProvider.authenticate's PROVIDER_BLOCK_CACHE_KEY
+            # check) -- an explicit user-triggered retry must always genuinely
+            # re-check Sandbox, never silently reuse a stale "quota exhausted"
+            # verdict from before the user retried.
+            if primary_name == "sandbox":
+                lookup_kwargs = {"company_gstin": company_gstin}
+                if force_refresh:
+                    lookup_kwargs["force"] = True
+                data = primary_service.lookup(gstin, **lookup_kwargs)
+            else:
+                data = primary_service.lookup(gstin)
             attempted = bool(getattr(primary_service.provider, "last_lookup_attempted", True))
             diagnostics["lookup_attempted"] = attempted
             request_count = getattr(primary_service.provider, "lookup_request_count", None)
             diagnostics["api_calls"] += request_count if isinstance(request_count, int) else int(attempted)
             diagnostics["http_status"] = getattr(primary_service.provider, "last_http_status", None)
             diagnostics["raw_provider_response"] = getattr(primary_service.provider, "last_response_body", "")
+            diagnostics["request_metadata"] = getattr(primary_service.provider, "last_request_metadata", {})
             diagnostics["sandbox_success"] = primary_name == "sandbox"
             diagnostics["normalized"] = True
         except GSTLookupAuthenticationError as exc:
@@ -201,6 +218,11 @@ class GSTLookupService:
             request_count = getattr(provider, "lookup_request_count", None)
             diagnostics.update(extra, lookup_attempted=attempted,
                                api_calls=request_count if isinstance(request_count, int) else int(attempted), http_status=getattr(provider, "last_http_status", None),
+                               provider_code=getattr(provider, "last_provider_code", None),
+                               provider_message=getattr(provider, "last_provider_message", None),
+                               provider_transaction_id=getattr(provider, "last_provider_transaction_id", None),
+                               request_metadata=getattr(provider, "last_request_metadata", {}),
+                               response_shape=getattr(provider, "last_response_shape", None),
                                normalized=False, sandbox_success=False)
             exc.lookup_diagnostics = diagnostics
             raise
@@ -211,6 +233,11 @@ class GSTLookupService:
             diagnostics.update(lookup_attempted=attempted, api_calls=request_count if isinstance(request_count, int) else int(attempted),
                                http_status=getattr(provider, "last_http_status", None),
                                raw_provider_response=getattr(provider, "last_response_body", ""),
+                               provider_code=getattr(provider, "last_provider_code", None),
+                               provider_message=getattr(provider, "last_provider_message", None),
+                               provider_transaction_id=getattr(provider, "last_provider_transaction_id", None),
+                               request_metadata=getattr(provider, "last_request_metadata", {}),
+                               response_shape=getattr(provider, "last_response_shape", None),
                                normalized=False, sandbox_success=False)
             exc.lookup_diagnostics = diagnostics
             raise

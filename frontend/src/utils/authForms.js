@@ -19,9 +19,17 @@ export function validateRegistration(values) {
   if (!String(values.full_name || '').trim()) errors.full_name = 'Full name is required.'
   if (!emailPattern.test(String(values.email || '').trim())) errors.email = 'Enter a valid email address.'
   if (!/^\d{10}$/.test(String(values.contact_number || ''))) errors.contact_number = 'Contact number must contain exactly 10 digits.'
-  if (!String(values.username || '').trim()) errors.username = 'Username is required.'
   if (!String(values.password || '')) errors.password = 'Password is required.'
+  else if (String(values.password).length < 8) errors.password = 'Password must be at least 8 characters.'
   if (String(values.password || '') !== String(values.confirm_password || '')) errors.confirm_password = 'Passwords do not match.'
+  return errors
+}
+
+export function validatePasswordReset(values) {
+  const errors = {}
+  if (!String(values.new_password || '')) errors.new_password = 'Password is required.'
+  else if (String(values.new_password).length < 8) errors.new_password = 'Password must be at least 8 characters.'
+  if (String(values.new_password || '') !== String(values.confirm_password || '')) errors.confirm_password = 'Passwords do not match.'
   return errors
 }
 

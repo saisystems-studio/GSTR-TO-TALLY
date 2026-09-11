@@ -3,20 +3,22 @@ from .validators import dec, money
 from gst_tally.services.company import financial_year_details
 
 
-def _ledger(name, value, debit=False, party=False, bill_reference="", gst_rate=None):
+def _ledger(name, value, debit=False, party=False, bill_reference=""):
+    """Plain ledger allocation.
+
+    Deliberately carries no rateofinvoicetax/basicrateofinvoicetax/
+    ratedetails GST-rate metadata: supplying any of those at the voucher's
+    ledger-entry level makes Tally classify the transaction's GST Rate
+    Details as "As per Voucher" (an override) instead of "As per Ledger",
+    even when the values match the ledger master exactly. The rate must be
+    resolved purely from the named GST Purchase/Sales ledger's own master.
+    """
     amount = -money(value) if debit else money(value)
     result = {"oldauditentryids": [{"metadata": True, "type": "Number"}, "-1"],
             "ledgername": name, "isdeemedpositive": amount < 0, "ledgerfromitem": False,
             "removezeroentries": False, "ispartyledger": party, "amount": str(amount)}
     if party and bill_reference:
         result["billallocations"] = [{"name": bill_reference, "billtype": "New Ref", "amount": str(amount)}]
-    if gst_rate is not None:
-        rate = dec(gst_rate)
-        result["rateofinvoicetax"] = [{"metadata": True, "type": "Number"}, f"{rate:g}"]
-        result["basicrateofinvoicetax"] = [{"metadata": True, "type": "Number"}, f"{rate:g}"]
-        result["ratedetails"] = [
-            {"gstratedutyhead": head, "gstratevaluationtype": "Based on Value", "gstrate": f"{value:g}"}
-            for head, value in (("CGST", rate / 2), ("SGST/UTGST", rate / 2), ("IGST", rate))]
     return result
 
 
@@ -30,20 +32,18 @@ def build_json_voucher(voucher, company, period=None):
                        bill_reference=voucher["invoice_number"])]
     allocations = voucher.get("rate_allocations") or []
     if allocations:
-        entries.extend(_ledger(row.get("account_ledger") or row["sales_ledger"], row["taxable_value"], debit=purchase,
-                               gst_rate=row["gst_rate"])
+        entries.extend(_ledger(row.get("account_ledger") or row["sales_ledger"], row["taxable_value"], debit=purchase)
                        for row in sorted(allocations, key=lambda item: (dec(item["gst_rate"]), item["sales_ledger"])))
     else:
         totals = {}
         for item in voucher["items"]: totals[item["sales_ledger"]] = dec(totals.get(item["sales_ledger"])) + dec(item["taxable_value"])
-        rates = {item["sales_ledger"]: item["gst_rate"] for item in voucher["items"]}
-        entries.extend(_ledger(name, value, debit=purchase, gst_rate=rates[name]) for name, value in sorted(totals.items()))
+        entries.extend(_ledger(name, value, debit=purchase) for name, value in sorted(totals.items()))
     if voucher.get("tax_allocations") is not None:
         entries.extend(_ledger(row["ledger"], row["amount"], debit=purchase) for row in voucher["tax_allocations"])
     else:
         for field in ("cgst", "sgst", "igst"):
             if dec(voucher.get(field)): entries.append(_ledger(field.upper(), voucher[field], debit=purchase))
-    if dec(voucher.get("cess")): entries.append(_ledger("Cess", voucher["cess"], debit=purchase))
+    if dec(voucher.get("cess")): entries.append(_ledger(voucher.get("cess_ledger", "Cess"), voucher["cess"], debit=purchase))
     if dec(voucher.get("other_charges")): entries.append(_ledger("Other Charges", voucher["other_charges"]))
     if dec(voucher.get("rounding_adjustment")): entries.append(_ledger("Round Off", voucher["rounding_adjustment"], debit=purchase))
     party = voucher["party"]

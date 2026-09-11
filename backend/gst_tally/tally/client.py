@@ -1,6 +1,7 @@
 import http.client
 import json
 import socket
+import threading
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -48,63 +49,86 @@ class TallyClient:
         )
         self.read_timeout = read_timeout or timeout or settings.TALLY_READ_TIMEOUT
         self.last_http_status = None
+        self._connection = None
+        self._connection_endpoint = None
+        self._connection_lock = threading.Lock()
+
+    def close(self):
+        connection = self._connection
+        self._connection = None
+        self._connection_endpoint = None
+        if connection is not None:
+            connection.close()
+
+    def _open_connection(self, parsed, host, port):
+        connected, code, message = tcp_probe(host, port, self.connect_timeout)
+        if not connected:
+            raise TallyConnectionError(code, message)
+        connection_class = (
+            http.client.HTTPSConnection if parsed.scheme == "https"
+            else http.client.HTTPConnection
+        )
+        connection = connection_class(host, port, timeout=self.connect_timeout)
+        connection.connect()
+        if connection.sock:
+            connection.sock.settimeout(self.read_timeout)
+        self._connection = connection
+        self._connection_endpoint = (parsed.scheme, host, port)
+        return connection
 
     def post(self, payload, headers=None):
         if not settings.TALLY_ENABLED or settings.TALLY_MOCK:
             raise TallyConnectionError("TALLY_DISABLED", "Tally integration is disabled")
 
         parsed, host, port = endpoint(self.base_url)
-        connected, code, message = tcp_probe(host, port, self.connect_timeout)
-        if not connected:
-            raise TallyConnectionError(code, message)
-
-        connection_class = (
-            http.client.HTTPSConnection if parsed.scheme == "https"
-            else http.client.HTTPConnection
-        )
-        connection = connection_class(host, port, timeout=self.connect_timeout)
-        stage = "connect"
-
-        try:
-            connection.connect()
-            if connection.sock:
-                connection.sock.settimeout(self.read_timeout)
-
-                stage = "read"
+        endpoint_key = (parsed.scheme, host, port)
+        with self._connection_lock:
+            connection = self._connection
+            if connection is None or self._connection_endpoint != endpoint_key:
+                self.close()
+                connection = self._open_connection(parsed, host, port)
+            try:
                 body = payload if isinstance(payload, bytes) else payload.encode("utf-8")
                 path = parsed.path or "/"
                 if parsed.query:
                     path += f"?{parsed.query}"
 
+                request_headers = dict(headers or {"Content-Type": "application/xml; charset=utf-8"})
+                if settings.TALLY_HTTP_KEEPALIVE:
+                    request_headers.setdefault("Connection", "keep-alive")
                 connection.request(
                     "POST",
                     path,
                     body=body,
-                    headers=headers or {"Content-Type": "application/xml; charset=utf-8"},
+                    headers=request_headers,
                 )
                 response = connection.getresponse()
                 self.last_http_status = response.status
-                return response.read()
-        except ConnectionRefusedError as exc:
-            raise TallyConnectionError(
-                "TALLY_CONNECTION_REFUSED", "Tally refused the HTTP connection"
-            ) from exc
-        except socket.timeout as exc:
-            code = "TALLY_CONNECT_TIMEOUT" if stage == "connect" else "TALLY_READ_TIMEOUT"
-            message = (
-                "HTTP connection to Tally timed out"
-                if stage == "connect"
-                else "Tally accepted the connection but did not return an HTTP response"
-            )
-            raise TallyConnectionError(code, message) from exc
-        except (http.client.HTTPException, OSError) as exc:
-            raise TallyConnectionError(
-                "TALLY_INVALID_RESPONSE", f"Invalid response from Tally: {exc}"
-            ) from exc
-        finally:
-            connection.close()
+                raw = response.read()
+                if not settings.TALLY_HTTP_KEEPALIVE or response.will_close:
+                    self.close()
+                return raw
+            except ConnectionRefusedError as exc:
+                self.close()
+                raise TallyConnectionError(
+                    "TALLY_CONNECTION_REFUSED", "Tally refused the HTTP connection"
+                ) from exc
+            except socket.timeout as exc:
+                self.close()
+                raise TallyConnectionError(
+                    "TALLY_READ_TIMEOUT", "Tally accepted the connection but did not return an HTTP response"
+                ) from exc
+            except (http.client.HTTPException, OSError) as exc:
+                self.close()
+                raise TallyConnectionError(
+                    "TALLY_INVALID_RESPONSE", f"Invalid response from Tally: {exc}"
+                ) from exc
 
     def import_data(self, payload):
+        return parse_response(self.post(payload))
+
+    def import_data_batch(self, payload):
+        """Send one multi-voucher Import Data envelope over the reused link."""
         return parse_response(self.post(payload))
 
     def import_json(self, payload, object_id="All Masters"):

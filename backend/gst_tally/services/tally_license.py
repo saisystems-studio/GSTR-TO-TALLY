@@ -2,8 +2,9 @@
 to an application company GSTIN. The backend is the sole authority on
 match/mismatch -- the frontend only ever displays what this returns.
 """
-from gst_tally.models import TallyCompanyMapping
+from gst_tally.models import CompanyDetails, TallyCompanyMapping
 from gst_tally.tally.license_reader import read_tally_license
+from gst_tally.tally.odbc import normalize_company_name
 
 MISMATCH = "LICENSE_IDENTITY_MISMATCH"
 FIELD_ERRORS = {
@@ -26,6 +27,43 @@ def _verified(reading):
             "license_error": "", "message": "License verified successfully."}
 
 
+def _resolve_batch_company_gstin(batch):
+    """The GSTIN Company Verification (services/company_verification.py)
+    already resolved for this batch, so License Verification never has to
+    ask the frontend for it again. Checked in order -- the first real value
+    wins:
+
+    1. CompanyDetails, the record Company Verification itself persisted, for
+       the exact Tally company name that batch was verified against.
+    2. batch.company_details["gstin"] -- the GSTIN already attached to this
+       batch's resolved company details (e.g. from resolve_batch_company).
+    3. batch.company_gstin -- the import batch's own company GSTIN field.
+    4. TallyCompanyMapping -- a GSTIN this same Tally company name was bound
+       to on an earlier successful verification.
+    """
+    selected_name = str((batch.company_details or {}).get("selected_tally_company") or "").strip()
+
+    if selected_name:
+        record = (CompanyDetails.objects.filter(company_name=normalize_company_name(selected_name))
+                  .order_by("-verified_at").first())
+        if record and record.gstin:
+            return str(record.gstin).strip().upper()
+
+    saved_gstin = (batch.company_details or {}).get("gstin")
+    if saved_gstin:
+        return str(saved_gstin).strip().upper()
+
+    if batch.company_gstin:
+        return str(batch.company_gstin).strip().upper()
+
+    if selected_name:
+        mapping = TallyCompanyMapping.objects.filter(tally_company_name=selected_name).order_by("-updated_at").first()
+        if mapping and mapping.gstin:
+            return str(mapping.gstin).strip().upper()
+
+    return ""
+
+
 def verify_batch_license(batch, client=None):
     reading = read_tally_license(client)
     if not reading["license_available"]:
@@ -35,7 +73,7 @@ def verify_batch_license(batch, client=None):
     if missing:
         return missing
 
-    company_gstin = (batch.company_gstin or "").strip().upper()
+    company_gstin = _resolve_batch_company_gstin(batch)
     if not company_gstin:
         return {**reading, "license_verified": False, "license_error": "COMPANY_GSTIN_REQUIRED"}
 

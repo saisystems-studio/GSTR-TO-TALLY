@@ -4,6 +4,7 @@ export default function UserMenu({ user, onLogout }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
   const name = user?.username || user?.email || 'User'
+  const initials = name.trim().slice(0, 2).toUpperCase()
 
   useEffect(() => {
     if (!open) return
@@ -19,7 +20,9 @@ export default function UserMenu({ user, onLogout }) {
 
   return <div className="user-menu" ref={rootRef}>
     <button type="button" className="user-menu-trigger" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(value => !value)}>
-      Hi, {name} <span className="user-menu-caret" aria-hidden="true">▾</span>
+      <span className="user-menu-text">Hi, {name}</span>
+      <span className="user-menu-avatar" aria-hidden="true">{initials}</span>
+      <span className="user-menu-caret" aria-hidden="true">▾</span>
     </button>
     {open && <div className="user-menu-panel" role="menu">
       <div className="user-menu-heading">Hi, {name}</div>

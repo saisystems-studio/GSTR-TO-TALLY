@@ -57,7 +57,27 @@ class TallyLicenseReaderTests(SimpleTestCase):
         self.assertFalse(result["license_available"])
         self.assertFalse(result["license_verified"])
         self.assertEqual(result["license_error"], "TALLY_LICENSE_DATA_UNAVAILABLE")
+        self.assertEqual(result["license_error_detail"], "SerialNumber returned an empty value.")
         self.assertIn("serial number", result["message"])
+
+    @override_settings(TALLY_DRY_RUN=False)
+    def test_reads_license_values_from_named_tally_tags_when_result_is_absent(self):
+        client = FakeTallyClient([
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><SERIALNUMBER>735149529</SERIALNUMBER></DATA></BODY></ENVELOPE>",
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><ISGOLD>Yes</ISGOLD></DATA></BODY></ENVELOPE>",
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><ISSILVER>No</ISSILVER></DATA></BODY></ENVELOPE>",
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><ISEDUCATIONALMODE>No</ISEDUCATIONALMODE></DATA></BODY></ENVELOPE>",
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><ISLICENSEDMODE>Yes</ISLICENSEDMODE></DATA></BODY></ENVELOPE>",
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><ADMINEMAILID>sai@example.com</ADMINEMAILID></DATA></BODY></ENVELOPE>",
+        ])
+
+        result = read_tally_license(client)
+
+        self.assertTrue(result["license_available"])
+        self.assertEqual(result["serial_number"], "735149529")
+        self.assertEqual(result["edition"], "Gold")
+        self.assertEqual(result["tally_software_services"], "Active")
+        self.assertEqual(result["license_administrator"], "sai@example.com")
 
     @override_settings(TALLY_DRY_RUN=False)
     def test_normalizes_expired_tss_result_without_guessing_active(self):

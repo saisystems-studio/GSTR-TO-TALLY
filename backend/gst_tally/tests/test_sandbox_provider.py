@@ -10,7 +10,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
-from gst_tally.services.gst_lookup.base import GSTLookupConfigurationError, GSTLookupTimeoutError
+from gst_tally.services.gst_lookup.base import GSTLookupConfigurationError, GSTLookupProviderError, GSTLookupTimeoutError
 from gst_tally.services.gst_lookup.providers import provider_class
 from gst_tally.services.gst_lookup.providers.sandbox import (ACCESS_CACHE_KEY, SESSION_CACHE_KEY,
     SandboxAuthenticationFailure, SandboxGSTProvider, SandboxOTPRequestFailure, _session_key)
@@ -73,6 +73,37 @@ class SandboxProviderTests(SimpleTestCase):
         self.assertEqual(caught.exception.diagnostics["authenticate_http_status"], 401)
         self.assertFalse(caught.exception.diagnostics["access_token_received"])
         self.assertNotIn("api-secret-value", json.dumps(caught.exception.diagnostics))
+
+    def test_http_500_error_body_is_parsed_into_provider_diagnostics(self):
+        """A 500 must never collapse to a bare, undiagnosable status code --
+        Sandbox's own {code, message, transaction_id} error envelope has to
+        be captured and surfaced so a real outage/account issue is visible
+        instead of a generic 'request failed' string."""
+        class BodiedHTTPError(HTTPError):
+            def __init__(self, body):
+                self._body = body.encode()
+                super().__init__("https://api.sandbox.co.in/gst/compliance/public/gstin/search",
+                                  500, "Internal Server Error", {}, None)
+            def read(self): return self._body
+        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        def reject(request, timeout=None):
+            raise BodiedHTTPError(json.dumps({"code": 500, "message": "Internal Server Error",
+                                              "transaction_id": "txn-abc-123"}))
+        provider = SandboxGSTProvider(config(), reject)
+        with self.assertRaises(GSTLookupProviderError) as caught:
+            provider.lookup("33AALFE2101R1ZF")
+        self.assertIn("Internal Server Error", str(caught.exception))
+        self.assertEqual(provider.last_http_status, 500)
+        self.assertEqual(provider.last_provider_code, 500)
+        self.assertEqual(provider.last_provider_message, "Internal Server Error")
+        self.assertEqual(provider.last_provider_transaction_id, "txn-abc-123")
+
+    def test_response_shape_is_tagged_for_diagnostics(self):
+        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        opener = Opener([{"code": 200, "data": {"gstin": "33AALFE2101R1ZF", "lgnm": "FLAT LEGAL"}}])
+        provider = SandboxGSTProvider(config(), opener)
+        provider.lookup("33AALFE2101R1ZF")
+        self.assertEqual(provider.last_response_shape, "flat")
 
     def test_otp_rejection_is_not_mislabeled_as_application_auth_failure(self):
         cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
@@ -145,6 +176,28 @@ class SandboxProviderTests(SimpleTestCase):
         self.assertEqual(result.pincode, "626104")
         self.assertEqual(result.taxpayer_type, "Regular")
 
+    def test_erp_style_taxpayer_details_shape_is_normalized_from_actual_nested_fields(self):
+        party_gstin = "29AAACQ3770E000"
+        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        opener = Opener([{"code": 200, "data": {"Status": 1, "Data": {
+            "Gstin": party_gstin, "LegalName": "Acme Industries Private Limited",
+            "TradeName": "Acme Industries", "Status": "ACT", "TxpType": "REG",
+            "AddrBno": "42", "AddrBnm": "Commerce Tower", "AddrFlno": "3rd Floor",
+            "AddrSt": "Market Road", "AddrLoc": "Bengaluru", "AddrPncd": 560009,
+        }}}])
+        provider = SandboxGSTProvider(config(), opener)
+
+        result = provider.lookup(party_gstin)
+
+        self.assertEqual(provider.last_response_shape, "erp_nested")
+        self.assertEqual(result.trade_name, "Acme Industries")
+        self.assertEqual(result.legal_name, "Acme Industries Private Limited")
+        self.assertEqual(result.principal_address, "42, Commerce Tower, 3rd Floor, Market Road, Bengaluru")
+        self.assertEqual(result.state, "Karnataka")
+        self.assertEqual(result.state_code, "29")
+        self.assertEqual(result.pincode, "560009")
+        self.assertEqual(result.taxpayer_type, "Regular")
+
     def test_party_lookup_does_not_require_company_gstin_at_all(self):
         party_gstin = "33AALFE2101R1ZF"
         cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
@@ -214,12 +267,18 @@ class SandboxCacheTests(TestCase):
         self.assertEqual(party.principal_place_of_business, "10, Chennai")
         self.assertEqual(party.state_code, "33")
         self.assertTrue(row["tally_ready"])
+        self.assertTrue(row["party_details_complete"])
         self.assertEqual(row["diagnostics"]["http_status"], 200)
         self.assertTrue(row["diagnostics"]["lookup_attempted"])
         self.assertFalse(row["diagnostics"]["taxpayer_session_active"])
         self.assertFalse(row["diagnostics"]["session_required"])
         self.assertTrue(row["diagnostics"]["normalized"])
         self.assertEqual(row["diagnostics"]["api_calls"], 1)
+        self.assertEqual(row["sandbox_lookup"]["attempted"], True)
+        self.assertEqual(row["sandbox_lookup"]["success"], True)
+        self.assertEqual(row["sandbox_lookup"]["http_status"], 200)
+        self.assertEqual(row["sandbox_lookup"]["error_code"], "")
+        self.assertEqual(row["sandbox_lookup"]["endpoint"], "/gst/compliance/public/gstin/search")
 
     @override_settings(SANDBOX_BASE_URL="https://api.sandbox.co.in", SANDBOX_API_KEY="configured",
                        SANDBOX_API_SECRET="configured")
@@ -233,10 +292,11 @@ class SandboxCacheTests(TestCase):
             status, party = process_gstin(party_gstin, batch=SimpleNamespace(company_gstin=GSTIN, source_parties={}), force=True)
         row = result_row(party_gstin, status, party)
         self.assertEqual(status, "Sandbox Session Failed")
-        # The lookup attempt itself genuinely failed (diagnostics below still
-        # show that truthfully) -- but that is optional enrichment, not a
-        # voucher eligibility gate: a valid GSTIN is still a usable fallback.
-        self.assertTrue(row["tally_ready"])
+        # A failed Sandbox enrichment is not a usable party profile; keep it
+        # attention-required instead of silently importing with GSTIN as name.
+        self.assertFalse(row["tally_ready"])
+        self.assertTrue(row["attention_required"])
+        self.assertEqual(row["party_name"], "")
         self.assertTrue(row["diagnostics"]["lookup_attempted"])
         self.assertEqual(row["diagnostics"]["http_status"], 403)
         self.assertEqual(row["diagnostics"]["api_calls"], 1)
@@ -251,12 +311,58 @@ class SandboxCacheTests(TestCase):
             status, party = process_gstin(party_gstin, batch=SimpleNamespace(company_gstin=GSTIN, source_parties={}), force=True)
         row = result_row(party_gstin, status, party)
         self.assertEqual(status, "Sandbox Lookup Failed")
-        # An unusable payload is still just an enrichment failure -- GSTIN
-        # fallback keeps the voucher eligible for Tally import.
-        self.assertTrue(row["tally_ready"])
+        # An unusable payload is an unresolved taxpayer profile, never a
+        # ready GSTIN fallback.
+        self.assertFalse(row["tally_ready"])
+        self.assertTrue(row["attention_required"])
+        self.assertEqual(row["party_name"], "")
+        # But it must never be presented as a completed party master.
+        self.assertFalse(row["party_details_complete"])
         self.assertFalse(row["diagnostics"]["normalized"])
         self.assertEqual(row["diagnostics"]["http_status"], 200)
         self.assertEqual(row["diagnostics"]["api_calls"], 1)
+        # The real HTTP 200/empty-payload failure must reach the API response
+        # instead of being hidden behind a bare SANDBOX_PARTY_DETAILS_UNAVAILABLE.
+        self.assertEqual(row["sandbox_lookup"]["attempted"], True)
+        self.assertEqual(row["sandbox_lookup"]["success"], False)
+        self.assertEqual(row["sandbox_lookup"]["http_status"], 200)
+        self.assertEqual(row["sandbox_lookup"]["error_code"], "SANDBOX_INVALID_RESPONSE")
+
+    @override_settings(SANDBOX_BASE_URL="https://api.sandbox.co.in", SANDBOX_API_KEY="configured",
+                       SANDBOX_API_SECRET="configured")
+    def test_sandbox_http_500_keeps_real_diagnostics_and_needs_attention_not_gstin_fallback(self):
+        class BodiedHTTPError(HTTPError):
+            def __init__(self, body):
+                self._body = body.encode()
+                super().__init__("https://api.sandbox.co.in/gst/compliance/public/gstin/search",
+                                  500, "Internal Server Error", {"x-request-id": "req-500"}, None)
+            def read(self): return self._body
+        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        def reject(request, timeout=None):
+            raise BodiedHTTPError(json.dumps({"code": 500, "message": "Internal Server Error",
+                                              "transaction_id": "txn-abc-123"}))
+        provider = SandboxGSTProvider(config(), reject)
+
+        with patch.object(GSTLookupService, "from_settings", return_value=GSTLookupService(provider)):
+            status, party = process_gstin("33AALFE2101R1ZF", force=True)
+
+        row = result_row("33AALFE2101R1ZF", status, party)
+        self.assertEqual(status, "Sandbox Lookup Failed")
+        self.assertFalse(row["tally_ready"])
+        self.assertTrue(row["attention_required"])
+        self.assertEqual(row["party_name"], "")
+        self.assertEqual(row["name"], "")
+        self.assertEqual(row["name_source"], "SANDBOX_LOOKUP_FAILED")
+        self.assertEqual(row["sandbox_lookup"]["attempted"], True)
+        self.assertEqual(row["sandbox_lookup"]["http_status"], 500)
+        self.assertEqual(row["sandbox_lookup"]["error_code"], "SANDBOX_PROVIDER_ERROR")
+        self.assertEqual(row["sandbox_lookup"]["error_message"], "Internal Server Error")
+        self.assertIn("Internal Server Error", row["sandbox_lookup"]["response_body"])
+        self.assertEqual(row["sandbox_lookup"]["endpoint"], "/gst/compliance/public/gstin/search")
+        self.assertTrue(row["sandbox_lookup"]["auth_token_attached"])
+        self.assertTrue(row["sandbox_lookup"]["api_key_attached"])
+        self.assertFalse(row["sandbox_lookup"]["taxpayer_session_attached"])
+
     @patch.object(GSTLookupService, "from_settings")
     def test_successful_normalized_result_is_cached(self, factory):
         service = Mock(); service.lookup.return_value = {"gstin": GSTIN, "legal_name": "ABC PRIVATE LIMITED", "trade_name": "ABC",
@@ -276,17 +382,39 @@ class SandboxCacheTests(TestCase):
         self.assertEqual(row["status"], "Fetched"); self.assertEqual(row["warning_reason"], "Address unavailable")
         self.assertNotEqual(row["status"], "Ready with Warning")
 
+    @override_settings(SANDBOX_BASE_URL="https://api.sandbox.co.in", SANDBOX_API_KEY="configured",
+                       SANDBOX_API_SECRET="configured")
+    def test_recent_gstin_only_fallback_record_is_retried_with_sandbox(self):
+        party_gstin = "33AALFE2101R1ZF"
+        GSTParty.objects.create(gstin=party_gstin, trade_name=party_gstin, legal_name="",
+                                taxpayer_type="Regular", lookup_source="GSTIN",
+                                lookup_status="Sandbox Lookup Failed", party_data_status="Complete",
+                                last_fetched_at=timezone.now())
+        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        provider = SandboxGSTProvider(config(), Opener([{"code": 200, "data": {"status_cd": "1", "data": {
+            "gstin": party_gstin, "lgnm": "EM VEERU & CO", "tradeNam": "EM VEERU & CO",
+            "sts": "Active", "dty": "Regular", "pradr": {"addr": {
+                "bno": "No.27", "loc": "Chinnavayampatti", "stcd": "Tamil Nadu",
+                "pncd": "626104"}}}}}]))
+        with patch.object(GSTLookupService, "from_settings", return_value=GSTLookupService(provider)):
+            status, party = process_gstin(party_gstin, force=True)
+
+        self.assertEqual(status, "Fetched")
+        self.assertEqual(provider.lookup_request_count, 1)
+        self.assertEqual(party.trade_name, "EM VEERU & CO")
+        self.assertEqual(party.principal_place_of_business, "No.27, Chinnavayampatti")
+        self.assertEqual(party.pincode, "626104")
+
     @patch.object(GSTLookupService, "lookup_cached", side_effect=GSTLookupTimeoutError())
     @override_settings(SANDBOX_BASE_URL="https://api.sandbox.co.in", SANDBOX_API_KEY="configured",
                        SANDBOX_API_SECRET="configured")
-    def test_timeout_is_sandbox_lookup_failed_but_still_tally_ready_via_gstin_fallback(self, lookup):
+    def test_timeout_is_sandbox_lookup_failed_and_needs_attention(self, lookup):
         status, party = process_gstin(GSTIN, force=True); row = result_row(GSTIN, status, party)
         self.assertEqual(row["status"], "Sandbox Lookup Failed")
         self.assertEqual(row["diagnostics"]["actual_provider_used"], "sandbox")
-        # The lookup attempt is truthfully reported as failed above -- but a
-        # timed-out enrichment call is still optional and must not block the
-        # voucher; GSTIN fallback keeps it Tally-ready.
-        self.assertTrue(row["tally_ready"])
+        self.assertFalse(row["tally_ready"])
+        self.assertTrue(row["attention_required"])
+        self.assertEqual(row["party_name"], "")
         self.assertNotIn(row["status"], {"GSTIN Fallback", "Ready with Warning"})
 
 @override_settings(GST_LOOKUP_ENABLED=True, GST_LOOKUP_PROVIDER="sandbox", GST_LOOKUP_PRIMARY_PROVIDER="sandbox",

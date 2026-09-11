@@ -31,7 +31,6 @@ test('validateRegistration requires the requested registration fields', () => {
     full_name: '',
     email: 'bad',
     contact_number: '123',
-    username: '',
     password: 'secret',
     confirm_password: 'different',
   })
@@ -39,16 +38,15 @@ test('validateRegistration requires the requested registration fields', () => {
   assert.equal(errors.full_name, 'Full name is required.')
   assert.equal(errors.email, 'Enter a valid email address.')
   assert.equal(errors.contact_number, 'Contact number must contain exactly 10 digits.')
-  assert.equal(errors.username, 'Username is required.')
+  assert.equal(errors.username, undefined)
   assert.equal(errors.confirm_password, 'Passwords do not match.')
 })
 
-test('validateRegistration accepts a complete matching password registration', () => {
+test('validateRegistration accepts a complete matching password registration with no username field', () => {
   assert.deepEqual(validateRegistration({
     full_name: 'Sai Dev',
     email: 'sai@example.com',
     contact_number: '9876543210',
-    username: 'sai',
     password: 'secret123',
     confirm_password: 'secret123',
   }), {})

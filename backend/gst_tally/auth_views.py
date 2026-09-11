@@ -12,7 +12,12 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .auth_service import activate_device, validate_license, verify_device
+from .auth_service import (
+    create_password_reset_code,
+    send_password_reset_email,
+    verify_and_consume_reset_code,
+    verify_device,
+)
 from .models import UserProfile
 
 User = get_user_model()
@@ -76,6 +81,10 @@ def find_user_by_login_identifier(identifier):
 
 
 class RegisterView(APIView):
+    """Account registration only -- deliberately independent of Tally/product
+    activation (see services/product_license.py for that, triggered later
+    from the GST import workflow, never here). No serial number, activation
+    key, or device identity is required to create an account."""
     permission_classes = [AllowAny]
 
     @transaction.atomic
@@ -83,56 +92,33 @@ class RegisterView(APIView):
         username = str(request.data.get("username", "")).strip()
         email = str(request.data.get("email", "")).strip().lower()
         phone = str(request.data.get("phone_number", "")).strip()
-        serial_number = str(request.data.get("serial_number", "")).strip()
-        activation_key = str(request.data.get("activation_key", "")).strip()
-        device_id = str(request.data.get("device_id", "")).strip()
-        device_name = str(request.data.get("device_name", "")).strip()
+        password = str(request.data.get("password", ""))
         errors = {}
         if not username: errors["username"] = "Username is required."
         try: validate_email(email)
         except ValidationError: errors["email"] = "Enter a valid email address."
         if len(phone) != 10 or not phone.isdigit(): errors["phone_number"] = "Phone number must contain exactly 10 digits."
-        if bool(serial_number) != bool(activation_key):
-            errors["serial_number" if not serial_number else "activation_key"] = "Enter both serial number and activation key, or leave both blank."
-        if not device_id or len(device_id) > 64: errors["device_id"] = "Device verification failed."
+        if len(password) < 8: errors["password"] = "Password must be at least 8 characters."
         if User.objects.filter(username__iexact=username).exists(): errors["username"] = "Username is already registered."
         if User.objects.filter(email__iexact=email).exists(): errors["email"] = "Email is already registered."
         if UserProfile.objects.filter(phone_number=phone).exists(): errors["phone_number"] = "Phone number is already registered."
         if errors: return Response({"detail": next(iter(errors.values())), "errors": errors}, status=400)
-        license_obj = None
-        if serial_number and activation_key:
-            try:
-                license_obj = validate_license(serial_number, email, activation_key)
-            except ValueError as exc:
-                return Response({"detail": str(exc)}, status=400)
-        user = User.objects.create_user(username=username, email=email)
-        user.set_unusable_password()
-        user.save(update_fields=["password"])
+        user = User.objects.create_user(username=username, email=email, password=password)
         UserProfile.objects.create(user=user, phone_number=phone, activated_at=timezone.now())
-        trusted_token = None
-        if license_obj:
-            license_obj.is_activated = True
-            license_obj.activated_user = user
-            license_obj.activated_at = timezone.now()
-            license_obj.save(update_fields=["is_activated", "activated_user", "activated_at", "updated_at"])
-            _, trusted_token = activate_device(user, license_obj, device_id, device_name)
         user.last_login = timezone.now()
         user.save(update_fields=["last_login"])
-        payload = {"user": public_user(user), **tokens_for(user)}
-        if trusted_token:
-            payload["trusted_device_token"] = trusted_token
-        return Response(payload, status=201)
+        return Response({"user": public_user(user), **tokens_for(user)}, status=201)
 
 
 class LoginView(APIView):
+    """Email/phone + password only -- no activation key, no device trust.
+    Product/Tally activation is a separate, later step (see
+    services/product_license.py) and never gates normal login."""
     permission_classes = [AllowAny]
 
-    @transaction.atomic
     def post(self, request):
         identifier = str(request.data.get("identifier", "")).strip()
-        device_id = str(request.data.get("device_id", "")).strip()
-        trusted_token = str(request.data.get("trusted_device_token", ""))
-        device_name = str(request.data.get("device_name", "")).strip()
+        password = str(request.data.get("password", ""))
         if not identifier:
             return Response({"detail": "Enter your email or phone number."}, status=400)
         user = find_user_by_login_identifier(identifier)
@@ -140,28 +126,11 @@ class LoginView(APIView):
             return Response({"detail": "Enter a valid email address or 10-digit phone number."}, status=400)
         if user == "AMBIGUOUS":
             return Response({"detail": "Multiple accounts are linked to this login identifier. Contact support to resolve this."}, status=409)
-        if not user: return Response({"detail": "Invalid email/phone number or password."}, status=400)
-        activation = verify_device(user, device_id, trusted_token)
-        replacement_token = None
-        if not activation:
-            if not hasattr(user, "activated_license"):
-                user.last_login = timezone.now()
-                user.save(update_fields=["last_login"])
-                return Response({"user": public_user(user), **tokens_for(user)})
-            activation_key = str(request.data.get("activation_key", "")).strip()
-            serial_number = str(request.data.get("serial_number", "")).strip()
-            if not activation_key or not serial_number:
-                return Response({"detail": "This device is not activated.", "requires_activation": True}, status=403)
-            try:
-                license_obj = validate_license(serial_number, user.email, activation_key, user, device_id)
-            except ValueError as exc:
-                return Response({"detail": str(exc), "requires_activation": True}, status=403)
-            _, replacement_token = activate_device(user, license_obj, device_id, device_name)
+        if not user or not user.check_password(password):
+            return Response({"detail": "Invalid email/phone number or password."}, status=400)
         user.last_login = timezone.now()
         user.save(update_fields=["last_login"])
-        payload = {"user": public_user(user), **tokens_for(user)}
-        if replacement_token: payload["trusted_device_token"] = replacement_token
-        return Response(payload)
+        return Response({"user": public_user(user), **tokens_for(user)})
 
 
 class RefreshView(APIView):
@@ -172,27 +141,21 @@ class RefreshView(APIView):
             user = User.objects.get(id=refresh["user_id"], is_active=True)
         except (TokenError, User.DoesNotExist, KeyError):
             return Response({"detail": "Your session has expired. Please login again."}, status=401)
-        if hasattr(user, "activated_license") and not verify_device(user, str(request.data.get("device_id", "")), str(request.data.get("trusted_device_token", ""))):
-            return Response({"detail": "Device verification failed."}, status=401)
-        refresh.blacklist()
+        # No server-side blacklist: the old refresh token is simply left to
+        # expire naturally. A new access + refresh pair is issued below.
         return Response(tokens_for(user))
 
 
 class LogoutView(APIView):
     def post(self, request):
-        try: RefreshToken(str(request.data.get("refresh", ""))).blacklist()
-        except TokenError: pass
+        # Stateless logout, no blacklist DB table required -- the frontend
+        # discards its tokens (see authApi.js::signOut) and the old refresh
+        # token is left to expire naturally on its own.
         return Response(status=204)
 
 
 class MeView(APIView):
     def get(self, request):
-        if hasattr(request.user, "activated_license") and not verify_device(
-            request.user,
-            request.headers.get("X-Device-ID", ""),
-            request.headers.get("X-Trusted-Device-Token", ""),
-        ):
-            return Response({"detail": "Unable to verify trusted device."}, status=401)
         return Response({"user": public_user(request.user)})
 
 
@@ -202,3 +165,40 @@ class DeviceVerifyView(APIView):
         user = find_user(str(request.data.get("identifier", "")))
         valid = bool(user and verify_device(user, str(request.data.get("device_id", "")), str(request.data.get("trusted_device_token", ""))))
         return Response({"trusted": valid})
+
+
+# Deliberately the exact same response either way -- confirming or denying
+# that an email is registered would let anyone enumerate real accounts.
+FORGOT_PASSWORD_GENERIC_RESPONSE = {"detail": "If this email is registered, a verification code has been sent to it."}
+
+
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip().lower()
+        if not email:
+            return Response({"detail": "Enter your registered email address."}, status=400)
+        user = find_user_by_email(email)
+        if user and user != "AMBIGUOUS":
+            code = create_password_reset_code(user)
+            send_password_reset_email(user, code)
+        return Response(FORGOT_PASSWORD_GENERIC_RESPONSE)
+
+
+class ResetPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    @transaction.atomic
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip().lower()
+        code = str(request.data.get("code", "")).strip()
+        new_password = str(request.data.get("new_password", ""))
+        if len(new_password) < 8:
+            return Response({"detail": "Password must be at least 8 characters."}, status=400)
+        user = find_user_by_email(email)
+        if not user or user == "AMBIGUOUS" or not verify_and_consume_reset_code(user, code):
+            return Response({"detail": "That verification code is invalid or has expired."}, status=400)
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+        return Response({"detail": "Your password has been updated. You can now log in with it."})

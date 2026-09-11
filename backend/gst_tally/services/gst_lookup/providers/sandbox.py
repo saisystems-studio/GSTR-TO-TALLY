@@ -1,6 +1,7 @@
 import json
 import socket
 import hashlib
+import logging
 from datetime import timedelta
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -13,10 +14,18 @@ from django.utils.dateparse import parse_datetime
 
 from ..base import (GSTLookupAuthenticationError, GSTLookupConfigurationError,
                     GSTLookupNotFoundError, GSTLookupProvider, GSTLookupProviderError,
-                    GSTLookupResult, GSTLookupTimeoutError)
+                    GSTLookupRateLimitError, GSTLookupResult, GSTLookupTimeoutError)
+from gst_tally.tally.validators import state_name
 
 ACCESS_CACHE_KEY = "gst:sandbox:access-token"
 SESSION_CACHE_KEY = "gst:sandbox:taxpayer-session"
+# An account-level /authenticate rejection (403 -- quota exhausted, subscription
+# lapsed, permission revoked) applies to every GSTIN, not just the one being
+# looked up when it was first discovered. Caching it here is what turns "13
+# unique GSTINs -> 13 failing /authenticate calls" into one real call plus 12
+# free, instant, correctly-diagnosed cache hits.
+PROVIDER_BLOCK_CACHE_KEY = "gst:sandbox:provider-block"
+logger = logging.getLogger(__name__)
 
 def _session_key(company_gstin):
     digest = hashlib.sha256(str(company_gstin or "").strip().upper().encode()).hexdigest()
@@ -66,17 +75,89 @@ def _first_text(data, *keys):
             return value.strip()
     return None
 
+def _first_value(data, *keys):
+    if not isinstance(data, dict): return None
+    lowered = {str(key).lower(): value for key, value in data.items()}
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""): return value
+        value = lowered.get(str(key).lower())
+        if value not in (None, ""): return value
+    return None
+
+def _text(value):
+    text = str(value or "").strip()
+    return text if text and text.lower() not in {"none", "null", "-"} else None
+
+def _first_any_text(data, *keys):
+    return _text(_first_value(data, *keys))
+
 def _extract_public_search_data(payload):
     """Normalize the real Sandbox public GSTIN search envelope, which may nest
     the taxpayer fields under data.data with a status_cd (like the taxpayer
-    detail schema), or return them flat under data."""
+    detail schema), or return them flat under data. Also reports which shape
+    was actually found, for diagnostics -- so a future unrecognized shape is
+    visible instead of silently collapsing to the same "invalid" reason."""
     envelope = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     nested = envelope.get("data") if isinstance(envelope.get("data"), dict) else None
     if nested is not None:
-        return str(envelope.get("status_cd") or ""), nested
-    if envelope.get("gstin"):
-        return "1", envelope
-    return "", {}
+        return str(_first_value(envelope, "status_cd", "status", "Status") or ""), nested, "nested"
+    erp_nested = envelope.get("Data") if isinstance(envelope.get("Data"), dict) else None
+    if erp_nested is not None:
+        return str(_first_value(envelope, "Status", "status", "status_cd") or ""), erp_nested, "erp_nested"
+    if _first_value(envelope, "gstin", "Gstin"):
+        return "1", envelope, "flat"
+    return "", {}, "empty" if not envelope else "unrecognized"
+
+
+def _safe_json_object(text):
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+def _regular_taxpayer_type(value):
+    text = _text(value)
+    if not text: return None
+    return {"reg": "Regular"}.get(text.casefold(), text)
+
+def _extract_address(data):
+    principal = _first_value(data, "pradr", "principal_place_of_business", "principalPlaceOfBusiness", "principal_address")
+    if isinstance(principal, dict):
+        address = principal.get("addr") if isinstance(principal.get("addr"), dict) else principal
+    elif principal:
+        address = {"address": principal}
+    else:
+        address = {}
+    flat = {
+        "bno": _first_value(data, "AddrBno", "address1", "address_line_1"),
+        "bnm": _first_value(data, "AddrBnm", "address2", "address_line_2"),
+        "flno": _first_value(data, "AddrFlno"),
+        "st": _first_value(data, "AddrSt", "street"),
+        "loc": _first_value(data, "AddrLoc", "location", "city"),
+        "dst": _first_value(data, "AddrDst", "district"),
+        "stcd": _first_value(data, "State", "state", "stateName"),
+        "pncd": _first_value(data, "AddrPncd", "pinCode", "pincode", "pin"),
+    }
+    if not isinstance(address, dict): address = {}
+    merged = {**{key: value for key, value in flat.items() if value not in (None, "")}, **address}
+    address_text = _first_any_text(merged, "completeAddress", "complete_address", "address")
+    if not address_text:
+        address_parts = [_first_value(merged, key) for key in ("bno", "bnm", "flno", "st", "landMark", "loc", "locality", "dst")]
+        seen = set()
+        cleaned = []
+        for value in address_parts:
+            text = _text(value)
+            key = text.casefold() if text else ""
+            if text and key not in seen:
+                seen.add(key)
+                cleaned.append(text)
+        address_text = ", ".join(cleaned) or None
+    pincode = _text(_first_value(merged, "pncd", "pinCode", "pincode", "pin"))
+    if pincode:
+        pincode = "".join(ch for ch in pincode if ch.isdigit())[:6] or pincode
+    return merged, address_text, _first_any_text(merged, "stcd", "state", "stateName"), pincode
 
 class SandboxGSTProvider(GSTLookupProvider):
     AUTH_PATH = "/authenticate"
@@ -90,13 +171,20 @@ class SandboxGSTProvider(GSTLookupProvider):
         self.last_response_body, self.last_request_sent = None, False
         self.last_lookup_attempted = False
         self.lookup_request_count = 0
+        self.last_provider_code, self.last_provider_message = None, None
+        self.last_provider_transaction_id, self.last_response_shape = None, None
+        self.last_request_metadata = {}
 
     @staticmethod
     def settings_config():
-        return {"base_url": settings.SANDBOX_BASE_URL, "api_key": settings.SANDBOX_API_KEY,
-                "api_secret": settings.SANDBOX_API_SECRET, "api_version": settings.SANDBOX_API_VERSION,
+        from superadmin.services.sandbox_configuration import provider_config
+        configured = provider_config()
+        return {"base_url": settings.SANDBOX_BASE_URL, "api_key": (configured or {}).get("api_key") or settings.SANDBOX_API_KEY,
+                "api_secret": (configured or {}).get("api_secret") or settings.SANDBOX_API_SECRET,
+                "api_version": (configured or {}).get("api_version") or settings.SANDBOX_API_VERSION,
                 "timeout": settings.GST_LOOKUP_TIMEOUT,
-                "access_ttl": settings.SANDBOX_ACCESS_TOKEN_TTL, "session_ttl": settings.SANDBOX_TAXPAYER_SESSION_TTL}
+                "access_ttl": settings.SANDBOX_ACCESS_TOKEN_TTL, "session_ttl": settings.SANDBOX_TAXPAYER_SESSION_TTL,
+                "auth_failure_cooldown": settings.SANDBOX_AUTH_FAILURE_COOLDOWN}
 
     @classmethod
     def from_settings(cls): return cls(cls.settings_config())
@@ -110,12 +198,27 @@ class SandboxGSTProvider(GSTLookupProvider):
     def _url(self, path): return f'{self.config["base_url"].rstrip("/")}/{path.lstrip("/")}'
 
     def _post(self, path, headers, body=None, query=""):
-        request = Request(self._url(path) + query, data=json.dumps(body).encode() if body is not None else None,
-                          headers=headers, method="POST")
+        url = self._url(path) + query
+        request = Request(url, data=json.dumps(body).encode() if body is not None else None,   headers=headers, method="POST")
         self.last_request_sent = True
+        self.last_provider_code = self.last_provider_message = self.last_provider_transaction_id = None
+        self.last_request_metadata = {
+            "endpoint": path,
+            "url": url,
+            "method": "POST",
+            "body_keys": sorted(str(key) for key in body.keys()) if isinstance(body, dict) else [],
+            "auth_token_attached": bool(headers.get("authorization")),
+            "api_key_attached": bool(headers.get("x-api-key")),
+            "taxpayer_session_attached": bool(headers.get("authorization")) and not headers.get("x-api-key"),
+        }
         try:
             with self.opener(request, timeout=self.config["timeout"]) as response:
                 self.last_http_status = getattr(response, "status", 200)
+                response_headers = getattr(response, "headers", None)
+                self.last_request_metadata["request_id"] = (
+                    (response_headers.get("x-request-id") or response_headers.get("request-id") or "")
+                    if response_headers else ""
+                )
                 raw_body = response.read().decode("utf-8")
                 self.last_response_body = raw_body
                 payload = json.loads(raw_body)
@@ -123,9 +226,27 @@ class SandboxGSTProvider(GSTLookupProvider):
             self.last_http_status = exc.code
             try: self.last_response_body = exc.read().decode("utf-8", "replace")
             except Exception: self.last_response_body = ""
+            # Sandbox's own error envelope (distinct from an unhandled crash)
+            # carries {code, message, transaction_id} -- surface it instead of
+            # collapsing every HTTP failure into an undiagnosable bare status.
+            error_body = _safe_json_object(self.last_response_body)
+            if error_body:
+                self.last_provider_code = error_body.get("code")
+                self.last_provider_message = _first_text(error_body, "message")
+                self.last_provider_transaction_id = _first_text(error_body, "transaction_id")
+            detail = f": {self.last_provider_message}" if self.last_provider_message else ""
+            request_id = ""
+            try:
+                request_id = (exc.headers or {}).get("x-request-id") or (exc.headers or {}).get("request-id") or ""
+            except AttributeError:
+                request_id = ""
+            self.last_request_metadata["request_id"] = request_id
+            logger.warning("Sandbox GST lookup endpoint=%s status=%s request_id=%s body=%s",   path, exc.code, request_id, self.last_response_body)
             if exc.code in (401, 403):
-                error = GSTLookupAuthenticationError(f"Sandbox authentication failed (HTTP {exc.code})"); error.http_status = exc.code; raise error from exc
-            raise GSTLookupProviderError(f"Sandbox request failed (HTTP {exc.code})") from exc
+                error = GSTLookupAuthenticationError(f"Sandbox authentication failed (HTTP {exc.code}){detail}"); error.http_status = exc.code; raise error from exc
+            if exc.code == 429:
+                raise GSTLookupRateLimitError("sandbox", getattr(exc, "headers", {}).get("Retry-After")) from exc
+            raise GSTLookupProviderError(f"Sandbox request failed (HTTP {exc.code}){detail}") from exc
         except (TimeoutError, socket.timeout) as exc:
             self.last_http_status = 0; raise GSTLookupTimeoutError() from exc
         except URLError as exc:
@@ -135,18 +256,52 @@ class SandboxGSTProvider(GSTLookupProvider):
         self.last_response_keys = sorted(str(key) for key in payload.keys())
         return payload
 
-    def authenticate(self, force=False):
+    def authenticate(self, force=False, bypass_block=False):
         if not force:
             cached = cache.get(ACCESS_CACHE_KEY)
             if cached: return cached
         diagnostics = {"sandbox_configured": not self.configuration_issues(), "api_key_configured": bool(self.config.get("api_key")),
             "api_secret_configured": bool(self.config.get("api_secret")), "authenticate_attempted": True,
             "authenticate_http_status": None, "access_token_received": False, "response_keys": []}
+        if not force and not bypass_block:
+            # A previously-discovered account-level block (see the 403 branch
+            # below) applies to every GSTIN and every batch, not just the one
+            # that first hit it -- reuse it instead of making Sandbox reject
+            # the exact same request again. A user-triggered retry passes
+            # bypass_block=True (see lookup() below) to genuinely re-check --
+            # but, unlike `force`, it must NOT also discard an otherwise-valid
+            # cached access token (already handled above); those are
+            # independent concerns and conflating them wasted a real
+            # authenticate() call, and a real Opener response, on every retry
+            # of a GSTIN that failed for a reason having nothing to do with
+            # the access token at all.
+            blocked = cache.get(PROVIDER_BLOCK_CACHE_KEY)
+            if blocked:
+                self.last_http_status = blocked.get("http_status")
+                self.last_provider_message = blocked.get("message")
+                self.last_lookup_attempted = False
+                diagnostics.update(authenticate_http_status=blocked.get("http_status"), provider_blocked=True)
+                raise SandboxAuthenticationFailure(blocked.get("code", "SANDBOX_FORBIDDEN"),
+                    blocked.get("message") or "Sandbox rejected the request.", diagnostics)
         try:
             payload = self._post(self.AUTH_PATH, {"accept": "application/json", "x-api-key": self.config["api_key"],
                 "x-api-secret": self.config["api_secret"], "x-api-version": self.config["api_version"]})
         except GSTLookupAuthenticationError as exc:
-            code = f"SANDBOX_AUTH_{getattr(exc, 'http_status', 401)}"; diagnostics["authenticate_http_status"] = getattr(exc, "http_status", None)
+            status_code = getattr(exc, "http_status", 401)
+            diagnostics["authenticate_http_status"] = status_code
+            # A 403 here is Sandbox rejecting the *account* (quota/subscription/
+            # permission), not the credentials themselves -- conflating it with
+            # a 401 as "Invalid Sandbox API credentials" hides the real reason
+            # (e.g. Sandbox's own "Usage quota exhausted") behind a message that
+            # actively points the caller at the wrong fix.
+            if status_code == 403:
+                message = self.last_provider_message or "Sandbox rejected the request (account/subscription issue)."
+                code = "SANDBOX_QUOTA_EXHAUSTED" if "quota" in message.casefold() else "SANDBOX_FORBIDDEN"
+                cooldown = self.config.get("auth_failure_cooldown", 60)
+                if cooldown:
+                    cache.set(PROVIDER_BLOCK_CACHE_KEY, {"code": code, "message": message, "http_status": 403}, cooldown)
+                raise SandboxAuthenticationFailure(code, message, diagnostics) from exc
+            code = f"SANDBOX_AUTH_{status_code}"
             raise SandboxAuthenticationFailure(code, "Invalid Sandbox API credentials.", diagnostics) from exc
         except GSTLookupTimeoutError as exc:
             raise SandboxAuthenticationFailure("SANDBOX_AUTH_TIMEOUT", "Sandbox authentication timed out.", diagnostics) from exc
@@ -247,51 +402,69 @@ class SandboxGSTProvider(GSTLookupProvider):
                 "party_lookup_available": not issues,
                 "party_lookup_requires_taxpayer_session": False}
 
-    def lookup(self, gstin, company_gstin=""):
+    def lookup(self, gstin, company_gstin="", force=False):
         """Normal Party Details lookup: public GSTIN search using application auth only.
 
         No taxpayer OTP/session is requested or required here. `company_gstin`
         is accepted for signature compatibility but unused by this endpoint.
+        `force` (an explicit user-triggered retry, see BatchPartiesView's
+        retry_incomplete) bypasses a cached account-level block, so a retry
+        always genuinely re-checks Sandbox instead of replaying a stale
+        "quota exhausted" verdict -- it deliberately does NOT also discard an
+        otherwise-valid cached access token, since retrying one GSTIN is not
+        evidence that token itself is bad.
         """
         gstin = str(gstin or "").strip().upper()
         self.last_lookup_attempted = False
         self.lookup_request_count = 0
         self.last_http_status = None
         self.last_response_body = None
-        token = self.authenticate()
+        self.last_response_shape = None
+        token = self.authenticate(bypass_block=force)
         try:
             self.last_lookup_attempted = True
             self.lookup_request_count += 1
             payload = self._post(self.PUBLIC_GSTIN_SEARCH_PATH, self._public_headers(token), {"gstin": gstin})
-        except GSTLookupAuthenticationError:
+        except GSTLookupAuthenticationError as exc:
+            # Only a 401 means "this token is bad, get a fresh one and retry
+            # once" -- a 403 is Sandbox rejecting the account/subscription
+            # itself, which a new token cannot fix, so retrying would just
+            # burn a second call against an already-exhausted quota.
+            if getattr(exc, "http_status", None) == 403:
+                raise
             token = self.authenticate(force=True)
             self.last_lookup_attempted = True
             self.lookup_request_count += 1
             payload = self._post(self.PUBLIC_GSTIN_SEARCH_PATH, self._public_headers(token), {"gstin": gstin})
-        status_cd, data = _extract_public_search_data(payload)
+        logger.info("Sandbox GST lookup gstin=%s status=%s body=%s", gstin, self.last_http_status, self.last_response_body)
+        status_cd, data, self.last_response_shape = _extract_public_search_data(payload)
         if not data:
             raise GSTLookupProviderError("Sandbox public GSTIN payload is empty")
         if not status_cd:
             raise GSTLookupProviderError("Sandbox public GSTIN payload schema is invalid")
         if status_cd != "1":
             raise GSTLookupNotFoundError(gstin)
-        returned_gstin = str(data.get("gstin") or "").strip().upper()
+        returned_gstin = str(_first_value(data, "gstin", "Gstin") or "").strip().upper()
         if returned_gstin != gstin:
             raise GSTLookupProviderError("Sandbox GSTIN response did not match the requested GSTIN")
-        address = data.get("pradr", {}).get("addr", {}) if isinstance(data.get("pradr"), dict) else {}
-        address_parts = [address.get(key) for key in ("flno", "bno", "bnm", "st", "landMark", "loc", "locality", "dst")]
-        principal_address = ", ".join(str(value).strip() for value in address_parts if str(value or "").strip()) or None
+        address, principal_address, sandbox_state, pincode = _extract_address(data)
+        state_code = _first_any_text(data, "state_code", "stateCode", "StateCode") or gstin[:2]
+        state = sandbox_state or state_name(state_code) or state_name(gstin[:2])
         return GSTLookupResult(
             gstin=returned_gstin,
-            legal_name=_first_text(data, "lgnm", "legal_name", "legalName"),
-            trade_name=_first_text(data, "tradeNam", "trade_name", "tradeName"),
-            status=data.get("sts"),
-            principal_address=principal_address, state=address.get("stcd"), state_code=gstin[:2],
-            registration_date=data.get("rgdt"),
-            taxpayer_type=data.get("dty"), pincode=str(address.get("pncd") or "") or None,
-            cancellation_date=data.get("cxdt"), constitution_of_business=data.get("ctb"),
-            einvoice_status=data.get("einvoiceStatus"), nature_of_business=data.get("nba") or [],
-            state_jurisdiction=data.get("stj"), centre_jurisdiction=data.get("ctj"),
-            state_jurisdiction_code=data.get("stjCd"), centre_jurisdiction_code=data.get("ctjCd"),
-            last_updated_date=data.get("lstupdt"), principal_address_details=address,
-            principal_business_nature=data.get("pradr", {}).get("ntr") or [], additional_places=data.get("adadr") or [])
+            legal_name=_first_any_text(data, "lgnm", "legal_name", "legalName"),
+            trade_name=_first_any_text(data, "tradeNam", "trade_name", "tradeName"),
+            status=_first_any_text(data, "sts", "status", "Status"),
+            principal_address=principal_address, state=state, state_code=state_code or gstin[:2],
+            registration_date=_first_any_text(data, "rgdt", "registration_date", "DtReg"),
+            taxpayer_type=_regular_taxpayer_type(_first_value(data, "dty", "taxpayer_type", "taxpayerType", "TxpType")),
+            pincode=pincode,
+            cancellation_date=_first_any_text(data, "cxdt", "cancellation_date", "DtDReg"),
+            constitution_of_business=_first_any_text(data, "ctb", "constitution_of_business"),
+            einvoice_status=_first_any_text(data, "einvoiceStatus"),
+            nature_of_business=_first_value(data, "nba") or [],
+            state_jurisdiction=_first_any_text(data, "stj"), centre_jurisdiction=_first_any_text(data, "ctj"),
+            state_jurisdiction_code=_first_any_text(data, "stjCd"), centre_jurisdiction_code=_first_any_text(data, "ctjCd"),
+            last_updated_date=_first_any_text(data, "lstupdt", "lstupddt"), principal_address_details=address,
+            principal_business_nature=(data.get("pradr", {}).get("ntr") if isinstance(data.get("pradr"), dict) else []) or [],
+            additional_places=_first_value(data, "adadr") or [])

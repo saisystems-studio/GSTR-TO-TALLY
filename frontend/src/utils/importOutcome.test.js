@@ -42,3 +42,13 @@ test('all-already-verified outcome is distinct from a fresh import success', () 
     kind: 'success', title: '✅ Already Imported', message,
   })
 })
+
+test('a Tally-accepted-but-unverified write is a warning, never "Import Failed"', () => {
+  // Tally already returned CREATED>0 for every voucher here -- the
+  // query-back just couldn't confirm them yet. Showing "Import Failed"
+  // would wrongly invite the user to resend and risk a duplicate voucher.
+  const message = 'Tally accepted the voucher write, but verification is pending.'
+  const result = finalImportToast({ status: 'failed', imported: 0, failed: 46, import_status: 'Write Accepted - Verification Pending', message })
+  assert.deepEqual(result, { kind: 'warning', title: '⚠️ Verification Pending', message })
+  assert.notEqual(result.title, '❌ Import Failed')
+})

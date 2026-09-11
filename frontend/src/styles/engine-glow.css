@@ -1,0 +1,82 @@
+/* Glowing 3D cube + rings for TallyProcessingEngine.
+   Self-contained -- does not depend on any class already in gst-tally.css. */
+
+.eg-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.eg-glow {
+  animation: egBreathe 2.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes egBreathe {
+  0%, 100% { transform: scale(1);   opacity: .85; }
+  50%      { transform: scale(1.12); opacity: 1;  }
+}
+
+.eg-cubegrp {
+  animation: egFloaty 3s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes egFloaty {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+.eg-pedestal {
+  animation: egPedestal 3s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes egPedestal {
+  0%, 100% { transform: scaleX(1);   opacity: .9; }
+  50%      { transform: scaleX(0.9); opacity: .7; }
+}
+
+.eg-ring-outer {
+  animation: egSpin 40s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.eg-ring-inner {
+  animation: egSpin 30s linear infinite reverse;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes egSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.eg-dot {
+  animation: egDotPulse 2s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.eg-dot-b { animation-delay: .3s; }
+.eg-dot-c { animation-delay: .6s; }
+.eg-dot-d { animation-delay: .9s; }
+.eg-dot-e { animation-delay: .45s; }
+.eg-dot-f { animation-delay: .75s; }
+@keyframes egDotPulse {
+  0%, 100% { opacity: .5; transform: scale(1);   }
+  50%      { opacity: 1;  transform: scale(1.4); }
+}
+
+.eg-core-label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: -34px;
+  font-weight: 700;
+  font-size: 15px;
+  color: #1a2340;
+  white-space: nowrap;
+}

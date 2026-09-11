@@ -118,6 +118,41 @@ def odbc_company_status(connect=None, requested_company="", read_client=None, ex
     http_connected = bool(json_registration.get("json_company_response_received"))
     http_error = json_registration.get("error", "")
 
+    # Native JSON company discovery can fail on a Tally build/configuration
+    # where the HTTP Connectivity server itself is fine but JSON export isn't
+    # available -- the same situation Step 3's connection check (see
+    # connection.py::_step3_connection_check) already treats as a successful
+    # XML fallback, never a connection failure. Company Verification must
+    # agree: fall back to that same proven XML Collection read here too,
+    # instead of reporting "Tally Connection Failed" just because JSON
+    # transport specifically didn't work.
+    if http_attempted and not http_connected:
+        from .connection import read_current_company_via_xml
+        try:
+            xml_snapshot = read_current_company_via_xml(read_client or TallyClient())
+        except Exception as exc:
+            http_error = http_error or str(exc)
+        else:
+            if xml_snapshot.get("company_open"):
+                http_connected = True
+                http_error = ""
+                json_registration = {
+                    **json_registration,
+                    "json_company_response_received": True,
+                    "company_open": True,
+                    "company_name": xml_snapshot.get("company_name", ""),
+                    "gstin": xml_snapshot.get("company_gstin", ""),
+                    "state": xml_snapshot.get("company_state", ""),
+                    "read_source": "XML_COMPANY",
+                }
+                active_period = active_period or {
+                    "financial_year_from": xml_snapshot.get("financial_year_from", ""),
+                    "financial_year_to": xml_snapshot.get("financial_year_to", ""),
+                    "financial_year": xml_snapshot.get("financial_year", ""),
+                    "financial_year_available": bool(xml_snapshot.get("financial_year_from") and xml_snapshot.get("financial_year_to")),
+                    "financial_year_error": "",
+                }
+
     identity = {key: json_registration.get(key, "") for key in ("pan", "legal_name", "trade_name")}
     registration = ({"gstin": json_registration.get("gstin", ""), "state": json_registration.get("state", ""),
                      "registration_type": json_registration.get("registration_type", ""),
@@ -147,6 +182,8 @@ def odbc_company_status(connect=None, requested_company="", read_client=None, ex
                 fetched = cursor.fetchall() if hasattr(cursor, "fetchall") else [cursor.fetchone()]
                 open_rows = [item for item in fetched if item]
                 row = next((item for item in open_rows if not wanted or str(item[0] or "").strip().casefold() == wanted), None)
+                if expected_gstin:
+                    row = next((item for item in open_rows if normalize_gstin(item[2]) == normalize_gstin(expected_gstin)), row)
                 if row:
                     # These are standard Company methods, but older Tally/ODBC builds may
                     # not expose all of them. Identity discovery must never break GSTIN discovery.
@@ -187,6 +224,8 @@ def odbc_company_status(connect=None, requested_company="", read_client=None, ex
     http_company_open = bool(http_attempted and json_registration.get("company_open"))
     http_company_name = str(identity.get("trade_name") or json_registration.get("company_name") or "").strip()
     http_company_matched = bool(http_company_open and normalize_company_name(http_company_name) == normalize_company_name(requested_company))
+    if expected_gstin and http_company_open:
+        http_company_matched = normalize_gstin(registration.get("gstin")) == normalize_gstin(expected_gstin)
     company_matched = bool(row) or http_company_matched
     any_company_open = bool(open_rows) or http_company_open
 

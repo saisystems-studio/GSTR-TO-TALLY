@@ -7,10 +7,12 @@
    `.decode()` on that None unconditionally, crashing the whole import
    request with AttributeError: 'NoneType' object has no attribute 'decode'.
 
-2. _rate_metadata()/_taxable_amount() must bind each taxable ledger's own
-   GST rate (RATEOFINVOICETAX/BASICRATEOFINVOICETAX/GSTTAXRATE/RATEDETAILS)
-   independently per allocation, so a mixed-rate invoice never has one row's
-   rate bleed into another.
+2. _taxable_amount() must bind each taxable ledger allocation to its own
+   distinctly-named ledger and taxable AMOUNT, and must never attach any
+   RATEOFINVOICETAX/BASICRATEOFINVOICETAX/RATE/GSTTAXRATE/RATEDETAILS.LIST
+   voucher-level rate override -- Tally resolves the GST rate purely from
+   the named ledger's own master, so a mixed-rate invoice never has one
+   row's rate bleed into another.
 """
 from datetime import date
 from decimal import Decimal
@@ -93,14 +95,24 @@ class BuildVoucherNoneCrashRegressionTests(TestCase):
 
 
 class MixedGstRateBindingTests(SimpleTestCase):
-    """TEST 2/3/4 -- each taxable ledger allocation carries its own,
-    independently-bound GST rate; a later allocation must never overwrite an
-    earlier one's rate metadata."""
+    """TEST 2/3/4 -- each taxable ledger allocation is bound to its own,
+    distinctly-named ledger and taxable amount; a later allocation must
+    never overwrite an earlier one's amount, and no row may carry a
+    voucher-level GST rate override (which would make Tally classify the
+    transaction's Source of GST Rate Details as "As per Voucher")."""
+
+    RATE_TAGS = ("RATE", "RATEOFINVOICETAX", "BASICRATEOFINVOICETAX", "GSTTAXRATE")
 
     def _entry(self, xml, ledger_name):
         return next(e for e in xml.findall(".//LEDGERENTRIES.LIST") if e.findtext("LEDGERNAME") == ledger_name)
 
-    def test_single_5_percent_allocation_carries_its_own_rate(self):
+    def _assert_no_rate_override(self, entry):
+        for tag in self.RATE_TAGS:
+            self.assertIsNone(entry.find(tag))
+        self.assertEqual(entry.findall("RATEDETAILS.LIST"), [])
+        self.assertEqual(entry.findtext("GSTOVERRIDDEN"), "No")
+
+    def test_single_5_percent_allocation_carries_no_rate_override(self):
         voucher = _purchase_voucher(
             rate_allocations=[{"account_ledger": "GST Purchase 5%", "gst_rate": "5", "taxable_value": "190.00"}],
             tax_allocations=[{"ledger": "Input CGST 2.5%", "amount": "4.75"},
@@ -109,14 +121,10 @@ class MixedGstRateBindingTests(SimpleTestCase):
         xml = ET.fromstring(build_voucher(voucher, "D"))
         entry = self._entry(xml, "GST Purchase 5%")
 
-        self.assertEqual(entry.findtext("RATE"), "5")
-        self.assertEqual(entry.findtext("RATEOFINVOICETAX"), "5")
-        self.assertEqual(entry.findtext("BASICRATEOFINVOICETAX"), "5")
-        self.assertEqual(entry.findtext("GSTTAXRATE"), "5")
-        rates = {row.findtext("GSTRATEDUTYHEAD"): row.findtext("GSTRATE") for row in entry.findall("RATEDETAILS.LIST")}
-        self.assertEqual(rates, {"CGST": "2.5", "SGST/UTGST": "2.5", "IGST": "5"})
+        self.assertEqual(entry.findtext("AMOUNT"), "-190.00")
+        self._assert_no_rate_override(entry)
 
-    def test_single_18_percent_allocation_carries_its_own_rate(self):
+    def test_single_18_percent_allocation_carries_no_rate_override(self):
         voucher = _purchase_voucher(
             rate_allocations=[{"account_ledger": "GST Purchase 18%", "gst_rate": "18", "taxable_value": "5960.00"}],
             tax_allocations=[{"ledger": "Input CGST 9%", "amount": "536.40"},
@@ -125,14 +133,10 @@ class MixedGstRateBindingTests(SimpleTestCase):
         xml = ET.fromstring(build_voucher(voucher, "D"))
         entry = self._entry(xml, "GST Purchase 18%")
 
-        self.assertEqual(entry.findtext("RATE"), "18")
-        self.assertEqual(entry.findtext("RATEOFINVOICETAX"), "18")
-        self.assertEqual(entry.findtext("BASICRATEOFINVOICETAX"), "18")
-        self.assertEqual(entry.findtext("GSTTAXRATE"), "18")
-        rates = {row.findtext("GSTRATEDUTYHEAD"): row.findtext("GSTRATE") for row in entry.findall("RATEDETAILS.LIST")}
-        self.assertEqual(rates, {"CGST": "9", "SGST/UTGST": "9", "IGST": "18"})
+        self.assertEqual(entry.findtext("AMOUNT"), "-5960.00")
+        self._assert_no_rate_override(entry)
 
-    def test_mixed_rate_voucher_never_lets_one_rate_bleed_into_another(self):
+    def test_mixed_rate_voucher_never_lets_one_amount_bleed_into_another(self):
         voucher = _purchase_voucher(
             rate_allocations=[
                 {"account_ledger": "GST Purchase 5%", "gst_rate": "5", "taxable_value": "190.00"},
@@ -148,21 +152,14 @@ class MixedGstRateBindingTests(SimpleTestCase):
         five_percent = self._entry(xml, "GST Purchase 5%")
         eighteen_percent = self._entry(xml, "GST Purchase 18%")
 
-        self.assertEqual(five_percent.findtext("RATE"), "5")
-        self.assertEqual(five_percent.findtext("RATEOFINVOICETAX"), "5")
-        self.assertEqual(five_percent.findtext("BASICRATEOFINVOICETAX"), "5")
-        self.assertEqual(five_percent.findtext("GSTTAXRATE"), "5")
-        self.assertEqual(eighteen_percent.findtext("RATE"), "18")
-        self.assertEqual(eighteen_percent.findtext("RATEOFINVOICETAX"), "18")
-        self.assertEqual(eighteen_percent.findtext("BASICRATEOFINVOICETAX"), "18")
-        self.assertEqual(eighteen_percent.findtext("GSTTAXRATE"), "18")
-        # The literal failure mode being guarded against: the second
-        # allocation's rate must not have overwritten the first's.
-        self.assertNotEqual(five_percent.findtext("RATEOFINVOICETAX"), eighteen_percent.findtext("RATEOFINVOICETAX"))
+        self.assertEqual(five_percent.findtext("AMOUNT"), "-190.00")
+        self.assertEqual(eighteen_percent.findtext("AMOUNT"), "-5960.00")
+        self._assert_no_rate_override(five_percent)
+        self._assert_no_rate_override(eighteen_percent)
 
-    def test_reversed_input_order_still_binds_each_row_to_its_own_rate(self):
+    def test_reversed_input_order_still_binds_each_row_to_its_own_amount(self):
         """Feeding the 18% allocation first (before 5%) must not make the
-        first-written taxable row blank or borrow the wrong rate -- proves
+        first-written taxable row blank or borrow the wrong amount -- proves
         the fix is not specific to a particular position or to 5% itself."""
         voucher = _purchase_voucher(
             rate_allocations=[
@@ -176,21 +173,17 @@ class MixedGstRateBindingTests(SimpleTestCase):
             invoice_total="7232.30")
         xml = ET.fromstring(build_voucher(voucher, "D"))
 
-        taxable_entries = [e for e in xml.findall(".//LEDGERENTRIES.LIST") if e.findtext("RATE") is not None]
+        # GSTASSESSABLEVALUE is unique to taxable Purchase/Sales rows (the
+        # party ledger and tax ledgers never carry it).
+        taxable_entries = [e for e in xml.findall(".//LEDGERENTRIES.LIST") if e.findtext("GSTASSESSABLEVALUE") is not None]
         self.assertEqual(len(taxable_entries), 2)
         # Whichever row is physically first in the generated XML, every row's
-        # rate fields must match its OWN ledger name -- never blank, never
-        # the other allocation's rate.
+        # amount must match its OWN ledger name -- never blank, never the
+        # other allocation's amount -- and none may carry a rate override.
         for entry in taxable_entries:
-            expected_rate = "5" if entry.findtext("LEDGERNAME") == "GST Purchase 5%" else "18"
-            self.assertEqual(entry.findtext("RATE"), expected_rate)
-            self.assertEqual(entry.findtext("RATEOFINVOICETAX"), expected_rate)
-            self.assertEqual(entry.findtext("BASICRATEOFINVOICETAX"), expected_rate)
-            self.assertEqual(entry.findtext("GSTTAXRATE"), expected_rate)
-
-        first_row = taxable_entries[0]
-        self.assertIsNotNone(first_row.findtext("RATE"))
-        self.assertNotEqual(first_row.findtext("RATE"), "")
+            expected_amount = "-190.00" if entry.findtext("LEDGERNAME") == "GST Purchase 5%" else "-5960.00"
+            self.assertEqual(entry.findtext("AMOUNT"), expected_amount)
+            self._assert_no_rate_override(entry)
 
 
 class VoucherAmountsUnchangedByRateFixTests(SimpleTestCase):

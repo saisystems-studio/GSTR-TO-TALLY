@@ -100,17 +100,23 @@ class SourceRowRegressionTests(TestCase):
 class ImportOutcomeTests(TestCase):
     def test_success_partial_and_failed_contracts(self):
         self.assertEqual(import_outcome({"total": 2, "imported": 2, "already_imported": 0, "failed": 0, "invalid": 0, "skipped": 0}),
-                         {"total": 2, "imported": 2, "failed": 0, "skipped": 0, "status": "success"})
+                         {"total": 2, "total_eligible": 2, "imported": 2, "failed": 0,
+                          "validation_failed": 0, "skipped": 0, "pending_verification": 0,
+                          "remaining": 0, "status": "success"})
         # skipped and invalid are non-overlapping buckets (see service.py's Step 6 counts),
         # so both are now reported in full rather than one being netted against the other.
         self.assertEqual(import_outcome({"total": 3, "imported": 1, "already_imported": 1, "failed": 0, "invalid": 1, "skipped": 1}),
-                         {"total": 3, "imported": 2, "failed": 1, "skipped": 1, "status": "partial_success"})
+                         {"total": 3, "total_eligible": 3, "imported": 2, "failed": 0,
+                          "validation_failed": 1, "skipped": 1, "pending_verification": 0,
+                          "remaining": 0, "status": "partial_success"})
         self.assertEqual(import_outcome({"total": 2, "imported": 0, "already_imported": 0, "failed": 1, "invalid": 1, "skipped": 1}),
-                         {"total": 2, "imported": 0, "failed": 2, "skipped": 1, "status": "failed"})
+                         {"total": 2, "total_eligible": 2, "imported": 0, "failed": 1,
+                          "validation_failed": 1, "skipped": 1, "pending_verification": 0,
+                          "remaining": 0, "status": "failed"})
 
-    def test_validation_failed_and_tally_failed_are_both_counted_as_failed(self):
-        # service.py sets counts["failed"] = counts["tally_failed"] for backward
-        # compatibility (see import_batch); import_outcome sums "failed" + "validation_failed".
+    def test_validation_failed_is_separate_from_tally_failed(self):
         self.assertEqual(import_outcome({"total": 4, "imported": 1, "already_imported": 0,
                                          "validation_failed": 2, "tally_failed": 1, "failed": 1, "skipped": 0}),
-                         {"total": 4, "imported": 1, "failed": 3, "skipped": 0, "status": "partial_success"})
+                         {"total": 4, "total_eligible": 4, "imported": 1, "failed": 1,
+                          "validation_failed": 2, "skipped": 0, "pending_verification": 0,
+                          "remaining": 2, "status": "partial_success"})
