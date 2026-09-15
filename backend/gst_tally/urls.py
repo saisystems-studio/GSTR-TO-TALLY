@@ -4,7 +4,8 @@ from .views import (BatchCompanyView, BatchDetailView, BatchListView, BatchParti
                     ImportView, MyProfileView, SourcePreviewView, TallyConnectionView, TallyDiagnosticsView, TallyImportActiveJobView,
                     TallyImportJobPauseView, TallyImportJobResumeView, TallyImportJobStatusView, TallyImportView, TallyLicenseView,
                     ProductLicenseActivateView, ProductLicenseHeartbeatView, ProductLicensePreImportCheckView, ProductLicenseVerifyView,
-                    TallyMastersView, TallyVoucherCorrectionView, TallyVoucherPreviewView)
+                    TallyMastersView, TallyVoucherCorrectionView, TallyVoucherPreviewView,
+                    LocalTallyAgentProvisionView, LocalTallyAgentHeartbeatView, LocalTallyAgentNextJobView, LocalTallyAgentJobResultView)
 
 urlpatterns = [
     path("preview/", SourcePreviewView.as_view()), path("import/", ImportView.as_view()),
@@ -30,6 +31,10 @@ urlpatterns = [
     path("license/activate/", ProductLicenseActivateView.as_view()),
     path("license/verify/", ProductLicenseVerifyView.as_view()),
     path("license/heartbeat/", ProductLicenseHeartbeatView.as_view()),
+    path("local-agent/provision/", LocalTallyAgentProvisionView.as_view()),
+    path("local-agent/heartbeat/", LocalTallyAgentHeartbeatView.as_view()),
+    path("local-agent/next-job/", LocalTallyAgentNextJobView.as_view()),
+    path("local-agent/jobs/<uuid:job_id>/result/", LocalTallyAgentJobResultView.as_view()),
     path("me/profile/", MyProfileView.as_view()),
     path("me/change-password/", ChangePasswordView.as_view()),
     path("support-contact/", CustomerSupportContactView.as_view()),

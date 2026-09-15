@@ -353,6 +353,7 @@ test('buildPrepState marks Tally connection failed and keeps later checks pendin
     connection: 'failed',
     company: 'pending',
     license: 'pending',
+    device: 'pending',
     masters: 'pending',
   })
 })
@@ -385,7 +386,8 @@ test('XML fallback is a valid Tally connection for Step 3', () => {
     fetch: 'done',
     connection: 'done',
     company: 'active',
-    license: 'pending',
+    license: 'active',
+    device: 'active',
     masters: 'pending',
   })
 })

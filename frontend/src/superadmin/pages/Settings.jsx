@@ -65,18 +65,27 @@ export default function Settings() {
         </form>
       </section>
       <section className="sa-card sa-sandbox-config-card">
-        <div className="sa-section-heading"><div><h2>Sandbox API Configuration</h2><p>Manage GSTIN party lookup provider credentials.</p></div></div>
+        <div className="sa-section-heading"><div><h2>GST Party Lookup API Configuration</h2><p>Manage GSTIN party lookup provider credentials.</p></div></div>
         {sandboxState.error && <div className="sa-error-banner">{sandboxState.error}</div>}
         {sandboxState.success && <div className="sa-success-banner">{sandboxState.success}</div>}
-        <div className="sa-form-grid">
-          <div className="sa-field"><label>Provider</label><input className="sa-input" value="Sandbox" readOnly /></div>
-          <div className="sa-field"><label>Environment</label><select className="sa-input" value={sandbox.environment} onChange={e => { setSandbox(s => ({ ...s, environment: e.target.value })); setSandboxState(s => ({ ...s, tested: false })) }}><option value="test">Test</option><option value="production">Production</option></select></div>
-          <div className="sa-field sa-field-wide"><label>API Key</label><input className="sa-input" value={sandbox.api_key || ''} placeholder={sandbox.api_key_masked || 'Enter API Key'} onChange={e => { setSandbox(s => ({ ...s, api_key: e.target.value })); setSandboxState(s => ({ ...s, tested: false })) }} /></div>
-          <div className="sa-field sa-field-wide"><label>API Secret</label><input className="sa-input" type="password" value={sandbox.api_secret || ''} placeholder="Enter a new API Secret" onChange={e => { setSandbox(s => ({ ...s, api_secret: e.target.value })); setSandboxState(s => ({ ...s, tested: false })) }} /></div>
+        <fieldset className="sa-form-grid" style={{ border: 0, padding: 0, margin: 0 }} disabled={sandboxState.testing || sandboxState.saving}>
+          <div className="sa-field"><label>Provider</label><select className="sa-input" value="sandbox" disabled><option value="sandbox">Sandbox</option></select></div>
+          <div className="sa-field"><label>Environment</label><select className="sa-input" value={sandbox.environment} onChange={e => { setSandbox(s => ({ ...s, environment: e.target.value })); setSandboxState(s => ({ ...s, tested: false })) }}><option value="test">Test / Sandbox</option><option value="production">Production</option></select></div>
+          <div className="sa-field sa-field-wide"><label>API Key</label><input className="sa-input" type="password" autoComplete="new-password" value={sandbox.api_key || ''} placeholder={sandbox.api_key_masked || 'Enter API Key'} onChange={e => { setSandbox(s => ({ ...s, api_key: e.target.value })); setSandboxState(s => ({ ...s, tested: false })) }} /></div>
+          <div className="sa-field sa-field-wide"><label>Secret Key</label><input className="sa-input" type="password" autoComplete="new-password" value={sandbox.api_secret || ''} placeholder="Enter a new API Secret" onChange={e => { setSandbox(s => ({ ...s, api_secret: e.target.value })); setSandboxState(s => ({ ...s, tested: false })) }} /></div>
           <div className="sa-field"><label>API Version</label><input className="sa-input" value={sandbox.api_version || '1.0.0'} onChange={e => { setSandbox(s => ({ ...s, api_version: e.target.value })); setSandboxState(s => ({ ...s, tested: false })) }} /></div>
-        </div>
-        <div className="sa-actions-row"><button className="sa-button sa-button-secondary" type="button" onClick={testSandbox} disabled={sandboxState.testing || sandboxState.saving}>{sandboxState.testing ? 'Testing...' : sandbox.authenticated ? 'Retry Validation' : 'Test Connection'}</button><button className="sa-button" type="button" onClick={activateSandbox} disabled={!sandboxState.tested || sandboxState.testing || sandboxState.saving}>{sandboxState.saving ? 'Saving...' : 'Save & Activate'}</button></div>
-        <div className="sa-sandbox-status"><h3>Connection Status</h3><div className="sa-kv-grid"><div className="sa-kv-item"><span className="sa-kv-label">Provider</span><span className="sa-kv-value">Sandbox</span></div><div className="sa-kv-item"><span className="sa-kv-label">Environment</span><span className="sa-kv-value">{sandbox.environment}</span></div><div className="sa-kv-item"><span className="sa-kv-label">Authentication</span><span className="sa-kv-value">{sandbox.authenticated ? '✓ Connected' : '• Not verified'}</span></div><div className="sa-kv-item"><span className="sa-kv-label">GSTIN Lookup</span><span className="sa-kv-value">{sandbox.lookup_ready ? '✓ Ready' : '• Not ready'}</span></div></div></div>
+        </fieldset>
+        <div className="sa-actions-row"><button className="sa-button sa-button-secondary" type="button" onClick={testSandbox} disabled={sandboxState.testing || sandboxState.saving}>{sandboxState.testing ? 'Testing...' : 'Test Connection'}</button><button className="sa-button" type="button" onClick={activateSandbox} disabled={!sandboxState.tested || sandboxState.testing || sandboxState.saving}>{sandboxState.saving ? 'Saving...' : 'Save Configuration'}</button></div>
+        <div className="sa-sandbox-status"><h3>Active Configuration Status</h3><div className="sa-kv-grid">
+          {[
+            ['Provider', 'Sandbox'], ['Configuration', sandbox.configured ? 'Configured' : 'Not configured'],
+            ['Connection', sandbox.connection_status || 'Unverified'], ['Credentials', sandbox.credentials_status || 'Unverified'],
+            ['Last Verified', sandbox.last_verified_at ? new Date(sandbox.last_verified_at).toLocaleString() : 'Not verified'],
+            ['Party Lookup', sandbox.lookup_ready ? 'Ready' : 'Temporarily unavailable'],
+            ['Session Required', sandbox.session_required ? 'Yes' : 'No'], ['Session Active', sandbox.session_active ? 'Yes' : 'No'],
+            ['Session Expired', sandbox.session_expired ? 'Yes' : 'No'], ['OTP Required', sandbox.otp_required ? 'Yes' : 'No'],
+          ].map(([label, value]) => <div className="sa-kv-item" key={label}><span className="sa-kv-label">{label}</span><span className="sa-kv-value">{value}</span></div>)}
+        </div>{sandbox.last_error && <p className="sa-error-banner">{sandbox.last_error}</p>}</div>
       </section>
     </>
   )

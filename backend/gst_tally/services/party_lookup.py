@@ -1,3 +1,4 @@
+from .gst_lookup.service import active_provider_name
 import re
 import logging
 from datetime import timedelta
@@ -59,7 +60,7 @@ def party_eligibility(party, source_name="", gstin="", source_state=""):
     state = (getattr(party, "state_name", "") if party else "") or source_state or state_name_for_gstin_prefix(gstin[:2])
     if not has_usable_text(state):
         return {"tally_ready": False, "reason": "Sandbox taxpayer state is unavailable", "party_name": name, "name_source": "Sandbox"}
-    sandbox = str(settings.GST_LOOKUP_PROVIDER or "").strip().lower() == "sandbox"
+    sandbox = str(active_provider_name() or "").strip().lower() == "sandbox"
     sandbox_real_name = party and str(getattr(party, "lookup_source", "") or "").strip().lower() == "sandbox" and (
         (has_usable_text(getattr(party, "trade_name", "")) and normalize_gstin(party.trade_name) != gstin) or
         (has_usable_text(getattr(party, "legal_name", "")) and normalize_gstin(party.legal_name) != gstin)
@@ -123,7 +124,7 @@ def _coded(diagnostics, code):
 
 def _record_status(gstin, status, reason, existing=None, diagnostics=None):
     reason = _truncate(reason)
-    sandbox = str(settings.GST_LOOKUP_PROVIDER or "").strip().lower() == "sandbox"
+    sandbox = str(active_provider_name() or "").strip().lower() == "sandbox"
     # Persisted alongside the row so a later GET (a fresh GSTParty query with
     # no in-memory diagnostics attached) still shows the real last-attempt
     # detail instead of falling back to blank/false defaults.
@@ -135,14 +136,14 @@ def _record_status(gstin, status, reason, existing=None, diagnostics=None):
         "warning": None, "safe_reason": reason} if sandbox else {})
     party = existing
     if party:
-        party.lookup_source = settings.GST_LOOKUP_PROVIDER or party.lookup_source
+        party.lookup_source = active_provider_name() or party.lookup_source
         party.lookup_status = status
         party.lookup_error = reason
         party.lookup_diagnostics = diag
         if not party_is_fresh(party): party.party_data_status = "Incomplete"
         party.save(update_fields=["lookup_source", "lookup_status", "lookup_error", "lookup_diagnostics", "party_data_status", "updated_at"])
     else:
-        party = GSTParty.objects.create(gstin=gstin, lookup_source=settings.GST_LOOKUP_PROVIDER,
+        party = GSTParty.objects.create(gstin=gstin, lookup_source=active_provider_name(),
                                         lookup_status=status, lookup_error=reason, lookup_diagnostics=diag,
                                         party_data_status="Incomplete")
     party._lookup_diagnostics = diag
@@ -391,7 +392,7 @@ def _process_gstin(gstin, batch=None, force=False):
     source_address = source_address if has_usable_text(source_address) else ""
     trade_name = trade_name or source_trade_name
     address = address or source_address
-    if trade_name and address and str(settings.GST_LOOKUP_PROVIDER).lower() != "sandbox":
+    if trade_name and address and str(active_provider_name()).lower() != "sandbox":
         party, _ = GSTParty.objects.update_or_create(gstin=gstin, defaults={
             "trade_name": trade_name,
             "principal_place_of_business": address,
@@ -403,7 +404,7 @@ def _process_gstin(gstin, batch=None, force=False):
         })
         return "Fetched", party
     if not lookup_is_configured():
-        sandbox = str(settings.GST_LOOKUP_PROVIDER).lower() == "sandbox"
+        sandbox = str(active_provider_name()).lower() == "sandbox"
         status = "Sandbox Not Configured" if sandbox else "Failed"
         if sandbox:
             return status, _fallback_party_identity(gstin, batch, status, "SANDBOX_NOT_CONFIGURED", existing)
@@ -422,7 +423,7 @@ def _process_gstin(gstin, batch=None, force=False):
             party.save(update_fields=["retry_not_before", "updated_at"])
             return "Rate Limited", party
         if source_kind == "existing": return "Existing", party
-        if str(settings.GST_LOOKUP_PROVIDER).lower() == "sandbox" and source_kind not in {"sandbox", "existing"}:
+        if str(active_provider_name()).lower() == "sandbox" and source_kind not in {"sandbox", "existing"}:
             return "Sandbox Lookup Failed", _record_status(gstin, "Sandbox Lookup Failed", "UNEXPECTED_GST_PROVIDER", party)
         if party.lookup_status == "Fetched via Fallback" or "+" in source_kind: return "Fetched via Fallback", party
         return ("Incomplete" if party.party_data_status == "Incomplete" else "Fetched"), party
@@ -433,14 +434,14 @@ def _process_gstin(gstin, batch=None, force=False):
         reason = "Sandbox taxpayer session is inactive. Authenticate the GST session and retry."
         return "Sandbox Session Required", _fallback_party_identity(gstin, batch, "Sandbox Session Required", reason, existing, diagnostics)
     except GSTLookupNotFoundError as exc:
-        status = "Sandbox Lookup Failed" if str(settings.GST_LOOKUP_PROVIDER).lower() == "sandbox" else "Not Found"
+        status = "Sandbox Lookup Failed" if str(active_provider_name()).lower() == "sandbox" else "Not Found"
         if status.startswith("Sandbox"):
             diagnostics = _coded(getattr(exc, "lookup_diagnostics", None), "SANDBOX_TAXPAYER_NOT_FOUND")
             return status, _fallback_party_identity(gstin, batch, status, "GSTIN not found", existing, diagnostics)
         return status, _record_status(gstin, status, "GSTIN not found", existing)
     except GSTLookupAuthenticationError as exc:
         logger.warning("GST taxpayer provider rejected credentials")
-        status = "Sandbox Lookup Failed" if str(settings.GST_LOOKUP_PROVIDER).lower() == "sandbox" else "Failed"
+        status = "Sandbox Lookup Failed" if str(active_provider_name()).lower() == "sandbox" else "Failed"
         diagnostics = getattr(exc, "lookup_diagnostics", None)
         http_status = (diagnostics or {}).get("http_status")
         provider_message = str((diagnostics or {}).get("provider_message") or "").strip()
@@ -466,7 +467,7 @@ def _process_gstin(gstin, batch=None, force=False):
         if status.startswith("Sandbox"):
             reason = (provider_message if forbidden and provider_message else
                       "Sandbox Session Failed" if status == "Sandbox Session Failed" else
-                      "Sandbox authentication failed")
+                      "GST party lookup credentials require an update. Contact the administrator.")
             return status, _fallback_party_identity(gstin, batch, status, reason, existing, diagnostics)
         return status, _record_status(gstin, status, "Sandbox Session Failed" if status == "Sandbox Session Failed" else "Sandbox authentication failed" if status.startswith("Sandbox") else "Provider authentication failed", existing, diagnostics)
     except GSTLookupRateLimitError as exc:
@@ -484,7 +485,7 @@ def _process_gstin(gstin, batch=None, force=False):
         return "Rate Limited", party
     except GSTLookupTimeoutError as exc:
         logger.warning("GST taxpayer provider timed out for GSTIN %s", gstin)
-        status = "Sandbox Lookup Failed" if str(settings.GST_LOOKUP_PROVIDER).lower() == "sandbox" else "Failed"
+        status = "Sandbox Lookup Failed" if str(active_provider_name()).lower() == "sandbox" else "Failed"
         reason = str(exc) or "Provider timeout"
         diagnostics = _coded(getattr(exc, "lookup_diagnostics", None), "SANDBOX_TIMEOUT")
         if status.startswith("Sandbox"):
@@ -496,7 +497,7 @@ def _process_gstin(gstin, batch=None, force=False):
         # payload is empty") -- surface it as-is instead of collapsing every
         # distinct provider failure into one generic, undiagnosable string.
         logger.warning("GST taxpayer provider returned an unexpected response for GSTIN %s: %s", gstin, exc)
-        status = "Sandbox Lookup Failed" if str(settings.GST_LOOKUP_PROVIDER).lower() == "sandbox" else "Failed"
+        status = "Sandbox Lookup Failed" if str(active_provider_name()).lower() == "sandbox" else "Failed"
         raw_diagnostics = getattr(exc, "lookup_diagnostics", None) or {}
         http_status = raw_diagnostics.get("http_status")
         # A connection-level failure (DNS/refused/reset -- no HTTP response at
@@ -516,14 +517,14 @@ def _process_gstin(gstin, batch=None, force=False):
         # BatchPartiesView retry-eligibility check matches this exact string.
         return status, _record_status(gstin, status, "Malformed provider response", existing, diagnostics)
     except GSTLookupConfigurationError as exc:
-        status = "Sandbox Lookup Failed" if str(settings.GST_LOOKUP_PROVIDER).lower() == "sandbox" else "Failed"
+        status = "Sandbox Lookup Failed" if str(active_provider_name()).lower() == "sandbox" else "Failed"
         diagnostics = _coded(getattr(exc, "lookup_diagnostics", None), "SANDBOX_NOT_CONFIGURED")
         if status.startswith("Sandbox"):
             return status, _fallback_party_identity(gstin, batch, status, str(exc), existing, diagnostics)
         return status, _record_status(gstin, status, str(exc) if status.startswith("Sandbox") else "GST lookup configuration unavailable", existing)
     except Exception as exc:
         logger.warning("GST taxpayer provider error for GSTIN %s error_code=%s: %s", gstin, type(exc).__name__, exc)
-        if str(settings.GST_LOOKUP_PROVIDER).lower() == "sandbox":
+        if str(active_provider_name()).lower() == "sandbox":
             reason = f"{type(exc).__name__}: {exc}" if str(exc) else f"Provider request failed ({type(exc).__name__})"
             diagnostics = _coded(None, "SANDBOX_UNEXPECTED_ERROR")
             return "Sandbox Lookup Failed", _fallback_party_identity(gstin, batch, "Sandbox Lookup Failed", reason, existing, diagnostics)
@@ -539,7 +540,7 @@ def result_row(gstin, status, party=None, reason=""):
     # reported through lookup_configured/configuration_error instead.
     reasons = {"Invalid": "Invalid GSTIN", "Not Found": "No taxpayer data returned","Rate Limited": "Provider rate limit", "Pending": "Sandbox taxpayer lookup has not been attempted yet.","Failed": "Processing failed", "Incomplete": "Required party details are incomplete"}
     eligibility = party_eligibility(party, gstin=gstin)
-    sandbox = str(settings.GST_LOOKUP_PROVIDER or "").strip().lower() == "sandbox"
+    sandbox = str(active_provider_name() or "").strip().lower() == "sandbox"
     controlled_failure = status in {"Invalid", "Incomplete", "Not Found", "Rate Limited", "Failed", "Sandbox Lookup Failed",
                                     "Sandbox Not Configured", "OTP Required", "Sandbox Session Required", "Sandbox Session Failed"}
     if not controlled_failure and not sandbox and eligibility["tally_ready"] and eligibility.get("name_source") == "GSTIN":

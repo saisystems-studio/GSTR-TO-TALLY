@@ -1,4 +1,6 @@
 from datetime import date
+import hashlib
+import secrets
 from decimal import Decimal, InvalidOperation
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.contrib.auth import get_user_model
@@ -6,7 +8,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.shortcuts import get_object_or_404
 from django.conf import settings
-from django.db import close_old_connections, connection
+from django.db import close_old_connections, connection, transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -14,7 +16,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .auth_views import public_user, tokens_for
-from .models import CompanyDetails, GSTImportBatch, GSTParty, LicensedDevice, ProductLicense, TallyCompanyMapping, UserProfile
+from .models import CompanyDetails, GSTImportBatch, GSTParty, LicensedDevice, ProductLicense, TallyCompanyMapping, UserProfile, LocalTallyAgent, LocalTallyJob
 from .serializers import GSTImportBatchListSerializer, GSTImportBatchSerializer
 from .services.import_service import import_file
 from .services.company import resolve_batch_company
@@ -68,6 +70,83 @@ class ImportView(APIView):
             )
             return Response(GSTImportBatchSerializer(batch).data, status=status.HTTP_201_CREATED)
         except ValueError as exc: return Response({"detail": str(exc)}, status=400)
+
+
+def _agent_from_request(request):
+    token = request.headers.get("X-Tally-Agent-Token", "")
+    if not token:
+        return None
+    return LocalTallyAgent.objects.select_related("device__license").filter(
+        token_hash=hashlib.sha256(token.encode()).hexdigest(), device__status=LicensedDevice.ACTIVE).first()
+
+
+class LocalTallyAgentProvisionView(APIView):
+    """User-authenticated one-time enrollment. The desktop installer stores
+    the returned token in Windows Credential Manager, never in React."""
+    def post(self, request):
+        fingerprint = str(request.data.get("device_fingerprint", "")).strip()
+        if not fingerprint:
+            return Response({"detail": "device_fingerprint is required."}, status=400)
+        device = LicensedDevice.objects.filter(device_fingerprint=fingerprint, license__customer=request.user,
+                                              status=LicensedDevice.ACTIVE).select_related("license").first()
+        if not device:
+            return Response({"detail": "An active registered device is required."}, status=403)
+        token = secrets.token_urlsafe(48)
+        agent, _ = LocalTallyAgent.objects.update_or_create(device=device, defaults={
+            "token_hash": hashlib.sha256(token.encode()).hexdigest()})
+        return Response({"agent_id": agent.id, "agent_token": token})
+
+
+class LocalTallyAgentHeartbeatView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        agent = _agent_from_request(request)
+        if not agent:
+            return Response({"detail": "Invalid agent token."}, status=401)
+        license = agent.device.license
+        serial = str(request.data.get("tally_serial", "")).strip()
+        gstin = normalize_gstin(request.data.get("company_gstin", ""))
+        verified = serial == license.licensed_tally_serial and gstin == license.licensed_gstin
+        LocalTallyAgent.objects.filter(pk=agent.pk).update(
+            detected_serial=serial, detected_company_gstin=gstin,
+            detected_company_name=str(request.data.get("company_name", ""))[:255],
+            tally_reachable=bool(request.data.get("tally_reachable")) and verified, last_seen_at=timezone.now())
+        return Response({"status": "Company Verified" if verified else "Wrong Company Open",
+                         "verified": verified, "tally_reachable": bool(request.data.get("tally_reachable"))})
+
+
+class LocalTallyAgentNextJobView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        agent = _agent_from_request(request)
+        if not agent:
+            return Response({"detail": "Invalid agent token."}, status=401)
+        with transaction.atomic():
+            job = (LocalTallyJob.objects.select_for_update(skip_locked=True)
+                   .filter(agent=agent, status=LocalTallyJob.QUEUED).order_by("created_at").first())
+            if not job:
+                return Response(status=204)
+            job.status, job.claimed_at = LocalTallyJob.CLAIMED, timezone.now()
+            job.save(update_fields=["status", "claimed_at"])
+        return Response({"job_id": str(job.job_id), "idempotency_key": job.idempotency_key, "payload": job.payload})
+
+
+class LocalTallyAgentJobResultView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request, job_id):
+        agent = _agent_from_request(request)
+        if not agent:
+            return Response({"detail": "Invalid agent token."}, status=401)
+        job = get_object_or_404(LocalTallyJob, job_id=job_id, agent=agent)
+        success = bool(request.data.get("success"))
+        # The agent acknowledgement is retained; server-side registry mutation
+        # is intentionally delegated to the existing verified Tally pipeline.
+        job.status = LocalTallyJob.SUCCESS if success else LocalTallyJob.RETRYABLE
+        job.acknowledgement = request.data.get("acknowledgement") or {}
+        job.error_message = str(request.data.get("error", ""))
+        job.completed_at = timezone.now()
+        job.save(update_fields=["status", "acknowledgement", "error_message", "completed_at"])
+        return Response({"accepted": True, "status": job.status})
 
 class BatchListView(APIView):
     def get(self, request):
@@ -225,10 +304,10 @@ class SandboxAuthenticateView(APIView):
             return Response({"provider_configured": True, "authenticated": True,
                              "authentication_attempted": True,
                              "authentication_http_status": provider.last_http_status,
-                             "session_active": False, "session_required": True,
-                             "session_expired": False, "otp_required": True,
-                             "lookup_ready": False, "lookup_failed": False,
-                             "code": "OTP_REQUIRED", "message": "OTP required"})
+                             "session_active": True, "session_required": False,
+                             "session_expired": False, "otp_required": False,
+                             "lookup_ready": True, "lookup_failed": False,
+                             "code": "SANDBOX_AUTHENTICATED", "message": "GST party lookup is ready."})
         except SandboxAuthenticationFailure as exc:
             return Response({"authenticated": False, "authentication_attempted": True,
                              "authentication_http_status": exc.diagnostics.get("authenticate_http_status"),
@@ -524,7 +603,16 @@ class BatchPartiesView(APIView):
                 close_old_connections()
             try:
                 party = GSTParty.objects.filter(gstin=gstin).first()
-                if retry_incomplete_only and party_is_complete(party):
+                # A source/import fallback can look complete to Tally while
+                # still having no real Sandbox taxpayer response. Explicit
+                # retry must re-enrich those records as well; only a genuine
+                # Sandbox result (or a manual completion) may be skipped.
+                sandbox_fallback = (
+                    str(GSTLookupService.status().get("provider") or "").lower() == "sandbox"
+                    and party
+                    and str(party.lookup_source or "").lower() not in {"sandbox", "completed manually"}
+                )
+                if retry_incomplete_only and party_is_complete(party) and not sandbox_fallback:
                     party.lookup_status = "Existing"
                     party.lookup_error = ""
                     party.party_data_status = "Complete"
@@ -536,17 +624,15 @@ class BatchPartiesView(APIView):
                                   {"", "Fetched", "Fetched via Fallback"}) or
                                  (party.lookup_status == "Failed" and party.lookup_error in
                                   temporary_failures)))
-                if retry_incomplete_only and not retryable:
-                    if not valid_gstin(gstin): fetch_status = "Invalid"
-                    elif party_is_fresh(party):
-                        fetch_status = "Completed Manually" if party.lookup_status == "Completed Manually" else "Existing"
-                    else: fetch_status = party.lookup_status if party and party.lookup_status in {"Not Found", "Rate Limited", "Failed"} else "Failed"
-                elif retry_incomplete_only and not retry_allowed(party):
-                    fetch_status = "Rate Limited"
-                    party.lookup_error = f"Retry allowed after {party.retry_not_before.isoformat()}"
+                if retry_incomplete_only:
+                    # An explicit retry is the recovery boundary for the
+                    # current batch. Never let a stale failure, retry window,
+                    # or old provider/session result suppress the real lookup
+                    # after Super Admin credentials have changed.
+                    fetch_status, party = process_gstin(gstin, batch=batch, force=True)
                 else:
                     fetch_status, party = process_gstin(gstin, batch=batch, force=True)
-                return gstin, fetch_status, party, bool(retry_incomplete_only and (retryable or fetch_status == "Rate Limited"))
+                return gstin, fetch_status, party, bool(retry_incomplete_only)
             except Exception:
                 return gstin, "Failed", None, False
             finally:
@@ -626,7 +712,26 @@ class BatchPartiesView(APIView):
         diagnostics = _batch_gstin_diagnostics(batch)
         returned_gstins = {row["gstin"] for row in rows if row["gstin"] != "-"}
         missing_gstins = sorted(set(diagnostics["unique_party_gstins"]) - returned_gstins)
-        return Response({"batch_id": batch.id, "total": len(input_gstins),
+        sandbox_retry = str(GSTLookupService.status().get("provider") or "").lower() == "sandbox"
+        unresolved = sum(
+            row["status"] in {"Incomplete", "Rate Limited", "Sandbox Lookup Failed",
+                              "Sandbox Not Configured", "OTP Required",
+                              "Sandbox Session Required", "Sandbox Session Failed",
+                              "Failed", "Pending"}
+            or (sandbox_retry and row["status"] == "Fetched via Fallback")
+            for row in rows
+        )
+        enriched = sum(
+            row["status"] in {"Fetched", "Existing", "Completed Manually",
+                              "Fetched via Fallback"}
+            and not (sandbox_retry and row["status"] == "Fetched via Fallback")
+            for row in rows
+        )
+        return Response({"success": True, "batch_id": batch.id, "unique_gstins": len(set(input_gstins)),
+                         "attempted": len(pending_gstins),
+                         "enriched": enriched, "failed": unresolved,
+                         "remaining": unresolved, "enrichment_complete": unresolved == 0,
+                         "total": len(input_gstins),
                          "total_parties": diagnostics["unique_party_gstin_count"], **counts,
                          **diagnostics, "missing_customer_gstins": missing_gstins,
                          "missing_customer_gstin_count": len(missing_gstins),

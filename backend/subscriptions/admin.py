@@ -38,7 +38,7 @@ class SubscriptionAdmin(admin.ModelAdmin):
     search_fields = ("user__username", "user__email")
     readonly_fields = ("is_activated", "activation_date", "expiry_date", "activated_at", "expired_at",
                        "subscription_status", "last_status_checked_at", "created_at", "updated_at")
-    fields = ("user", "plan", "purchase_date", "is_activated", "activation_date", "expiry_date",
+    fields = ("user", "plan", "allowed_products", "purchase_date", "is_activated", "activation_date", "expiry_date",
               "subscription_status", "is_suspended", "activated_at", "expired_at",
               "last_status_checked_at", "created_at", "updated_at")
     inlines = [RenewalHistoryInline, SubscriptionAuditLogInline]

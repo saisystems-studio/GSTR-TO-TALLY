@@ -12,6 +12,12 @@ from gst_tally.models import GSTParty
 from gst_tally.tally.validators import state_name
 
 
+def active_provider_name():
+    from superadmin.services.sandbox_configuration import get_active_configuration
+    active = get_active_configuration()
+    return active.provider if active else settings.GST_LOOKUP_PROVIDER or settings.GST_LOOKUP_PRIMARY_PROVIDER
+
+
 class GSTLookupService:
     @staticmethod
     def _retry_delay(value):
@@ -33,7 +39,7 @@ class GSTLookupService:
     @classmethod
     def status(cls):
         enabled = bool(settings.GST_LOOKUP_ENABLED)
-        name = str(settings.GST_LOOKUP_PROVIDER or settings.GST_LOOKUP_PRIMARY_PROVIDER or "").strip().lower()
+        name = str(active_provider_name() or "").strip().lower()
         provider = provider_class(name)
         if not enabled:
             missing = []
@@ -65,7 +71,7 @@ class GSTLookupService:
     def configuration_issues(cls):
         issues = []
         if not settings.GST_LOOKUP_ENABLED: issues.append("GST lookup is disabled")
-        primary_name = settings.GST_LOOKUP_PROVIDER or settings.GST_LOOKUP_PRIMARY_PROVIDER
+        primary_name = active_provider_name()
         provider = provider_class(primary_name)
         if not primary_name: issues.append("GST lookup provider is missing")
         elif not provider: issues.append("GST lookup provider is unsupported")
@@ -83,12 +89,12 @@ class GSTLookupService:
 
     @classmethod
     def from_settings(cls):
-        return cls.from_provider_name(settings.GST_LOOKUP_PROVIDER or settings.GST_LOOKUP_PRIMARY_PROVIDER)
+        return cls.from_provider_name(active_provider_name())
 
     @classmethod
     def from_provider_name(cls, provider_name):
         issues = cls.configuration_issues()
-        primary_name = settings.GST_LOOKUP_PROVIDER or settings.GST_LOOKUP_PRIMARY_PROVIDER
+        primary_name = active_provider_name()
         if str(provider_name).strip().lower() == str(primary_name).strip().lower() and issues:
             raise GSTLookupConfigurationError("; ".join(issues))
         provider = provider_class(provider_name)
@@ -151,7 +157,7 @@ class GSTLookupService:
             (has_usable_text(existing.legal_name) and str(existing.legal_name).strip().upper() != existing_gstin)
         )
         has_address = existing and has_usable_text(existing.principal_place_of_business)
-        sandbox_mode = str(settings.GST_LOOKUP_PROVIDER or settings.GST_LOOKUP_PRIMARY_PROVIDER).strip().lower() == "sandbox"
+        sandbox_mode = str(active_provider_name()).strip().lower() == "sandbox"
         has_registration = existing and (has_usable_text(existing.registration_status) or has_usable_text(existing.taxpayer_type))
         usable_cached = has_name and (has_address or (sandbox_mode and has_registration))
         if not force_refresh and existing and usable_cached and existing.last_fetched_at and existing.last_fetched_at >= fresh_after:
@@ -165,7 +171,7 @@ class GSTLookupService:
                 "actual_provider_used": existing.lookup_source or str(settings.GST_LOOKUP_PROVIDER or "").lower(), "cache_hit": True,
                 "lookup_attempted": False, "sandbox_success": None, "normalized": True, "status": "Existing", "warning": None}
             return "existing", cached
-        primary_name = str(settings.GST_LOOKUP_PROVIDER or settings.GST_LOOKUP_PRIMARY_PROVIDER).strip().lower()
+        primary_name = str(active_provider_name()).strip().lower()
         diagnostics = {"gstin": gstin, "configured_provider": primary_name, "provider_requested": primary_name,
                        "actual_provider_used": primary_name, "provider_used": primary_name, "cache_hit": False,
                        "lookup_attempted": False, "http_status": None, "sandbox_success": None, "normalized": False,

@@ -33,6 +33,7 @@ class Subscription(models.Model):
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="subscription")
     plan = models.CharField(max_length=50, default="Annual")
+    allowed_products = models.PositiveSmallIntegerField(default=1)
 
     # Purchase vs activation are deliberately separate dates (spec section 9)
     # -- expiry is always derived from activation_date, never purchase_date.

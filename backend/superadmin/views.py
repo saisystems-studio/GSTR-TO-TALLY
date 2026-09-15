@@ -836,77 +836,143 @@ def _sandbox_config_response(configuration):
     return data
 
 
+# Sandbox's own /authenticate error codes (see providers/sandbox.py) mapped to
+# the outcome a Super Admin actually needs to act on. 401 and 403 are NOT the
+# same fix (wrong key vs. blocked account), and neither is the same fix as a
+# 404 (our own endpoint/config is wrong), a 429 (wait and retry), a 5xx
+# (Sandbox is down), or a timeout -- collapsing these into one
+# "credentials rejected" message hides which one actually happened.
+_SANDBOX_ERROR_CATEGORY = {
+    "SANDBOX_AUTH_401": "AUTHENTICATION_REJECTED",       # 401 -- key/secret rejected by Sandbox
+    "SANDBOX_FORBIDDEN": "ACCOUNT_ACCESS_DENIED",         # 403 -- account/subscription/permission
+    "SANDBOX_QUOTA_EXHAUSTED": "ACCOUNT_ACCESS_DENIED",   # 403 -- account/subscription/permission
+    "SANDBOX_AUTH_404": "ENDPOINT_NOT_FOUND",             # 404 -- wrong endpoint/resource
+    "SANDBOX_AUTH_429": "RATE_LIMITED",                   # 429 -- rate limit
+    "SANDBOX_AUTH_5XX": "PROVIDER_UNAVAILABLE",           # 5xx -- provider unavailable
+    "SANDBOX_ACCESS_TOKEN_MISSING": "TOKEN_GENERATION_FAILED",
+    "SANDBOX_AUTH_INVALID_RESPONSE": "PROVIDER_UNAVAILABLE",
+    "SANDBOX_AUTH_TIMEOUT": "TIMEOUT",                    # timeout -- provider timeout
+    "SANDBOX_AUTH_NETWORK_ERROR": "PROVIDER_UNAVAILABLE",
+}
+# Fallback text only -- the actual response prefers the real, sanitized
+# upstream message (exc.safe_message) when Sandbox supplied one, per category
+# below only when it didn't.
+_SANDBOX_ERROR_MESSAGE = {
+    "AUTHENTICATION_REJECTED": "Authentication failed. Sandbox rejected the API Key/Secret.",
+    "ACCOUNT_ACCESS_DENIED": "Sandbox denied access to this account (subscription/permission/quota issue), separate from whether the key/secret are correct.",
+    "ENDPOINT_NOT_FOUND": "Sandbox authentication endpoint not found -- check the configured base URL/environment.",
+    "RATE_LIMITED": "Sandbox rate limit reached. Wait and retry.",
+    "PROVIDER_UNAVAILABLE": "Provider unavailable. Unable to reach or get a valid response from Sandbox.",
+    "TIMEOUT": "Sandbox authentication timed out.",
+    "TOKEN_GENERATION_FAILED": "Sandbox authenticated the request but did not return a usable access token.",
+}
+# credential-rejecting categories: our own submitted key/secret is provably
+# the problem. Everything else must never flip credentials_status to
+# "invalid" -- a 404/429/5xx/timeout says nothing about whether the
+# credentials themselves are right or wrong.
+_CREDENTIAL_REJECTING = {"AUTHENTICATION_REJECTED", "ACCOUNT_ACCESS_DENIED"}
+_SANDBOX_ERROR_HTTP_STATUS = {
+    "AUTHENTICATION_REJECTED": 400, "ACCOUNT_ACCESS_DENIED": 400,
+    "ENDPOINT_NOT_FOUND": 503, "RATE_LIMITED": 429, "PROVIDER_UNAVAILABLE": 503,
+    "TIMEOUT": 504, "TOKEN_GENERATION_FAILED": 503,
+}
+_SANDBOX_ERROR_CONNECTION_STATUS = {
+    "AUTHENTICATION_REJECTED": "authentication_failed", "ACCOUNT_ACCESS_DENIED": "authentication_failed",
+    "ENDPOINT_NOT_FOUND": "unavailable", "RATE_LIMITED": "rate_limited", "PROVIDER_UNAVAILABLE": "unavailable",
+    "TIMEOUT": "unavailable", "TOKEN_GENERATION_FAILED": "unavailable",
+}
+# The mask placeholder the UI shows for an already-saved secret -- if this
+# literal text (or the empty-key echo it stands in for) is ever what actually
+# reaches this view, it must never be sent to Sandbox as a real credential.
+_MASK_PLACEHOLDER = "••••••••"
+
+
 class SandboxConfigurationView(APIView):
     permission_classes = [IsSuperAdmin]
 
     def get(self, request):
-        return Response(_sandbox_config_response(SandboxAPIConfiguration.objects.filter(provider="sandbox", is_active=True).first()))
+        from .services.sandbox_configuration import get_active_configuration
+        return Response(_sandbox_config_response(get_active_configuration()))
+
+    def _validate(self, request):
+        from .services.sandbox_configuration import get_active_configuration, provider_config
+        from gst_tally.services.gst_lookup.providers.sandbox import SandboxGSTProvider, SandboxAuthenticationFailure
+        existing = get_active_configuration()
+        saved = provider_config(existing) if existing else {}
+        environment = request.data.get("environment", (saved or {}).get("environment", "test"))
+        if request.data.get("provider", "sandbox") != "sandbox" or environment not in {"test", "production"}:
+            return None, Response({"detail": "Select Sandbox and a valid environment.", "category": "INVALID_PROVIDER_CONFIGURATION"}, status=400)
+
+        def submitted(field):
+            # A masked placeholder (or a run of the same mask character) is
+            # never a real credential -- treat it exactly like "not edited"
+            # and fall back to the saved, decrypted value, the same as an
+            # empty field already does.
+            raw = str(request.data.get(field) or "")
+            return "" if not raw.strip() or raw.strip(_MASK_PLACEHOLDER) == "" else raw.strip()
+
+        values = {"api_key": submitted("api_key") or saved.get("api_key", ""),
+                  "api_secret": submitted("api_secret") or saved.get("api_secret", ""),
+                  "environment": environment, "api_version": str(request.data.get("api_version") or "1.0.0").strip()}
+        if any(not values[key] or len(values[key]) > 4096 or any(c in values[key] for c in "\r\n") for key in ("api_key", "api_secret")) or not values["api_version"] or len(values["api_version"]) > 30:
+            return None, Response({"detail": "Enter a valid API Key, Secret Key and API version.", "category": "INVALID_PROVIDER_CONFIGURATION"}, status=400)
+        provider = SandboxGSTProvider(SandboxGSTProvider.config_for_credentials(values))
+        try:
+            provider.authenticate(force=True, bypass_block=True)
+        except SandboxAuthenticationFailure as exc:
+            category = _SANDBOX_ERROR_CATEGORY.get(exc.code, "PROVIDER_UNAVAILABLE")
+            upstream_status = (exc.diagnostics or {}).get("authenticate_http_status")
+            # Safe diagnostics only -- provider/environment/endpoint/method/status/message,
+            # never the API key, secret, or any access token.
+            logger.warning("Sandbox Test Connection failed: provider=sandbox environment=%s auth_endpoint=%s "
+                            "http_method=POST upstream_http_status=%s category=%s provider_code=%s provider_message=%s",
+                            environment, SandboxGSTProvider.AUTH_PATH, upstream_status, category, exc.code, exc.safe_message)
+            return None, Response({"authenticated": False,
+                "credentials_status": "invalid" if category in _CREDENTIAL_REJECTING else "unverified",
+                "connection_status": _SANDBOX_ERROR_CONNECTION_STATUS.get(category, "unavailable"),
+                "code": exc.code, "category": category, "upstream_http_status": upstream_status,
+                # Prefer Sandbox's own sanitized reason when it gave one; the
+                # per-category text is only a fallback for cases (timeout,
+                # network error) where there is no upstream message to show.
+                "detail": exc.safe_message or _SANDBOX_ERROR_MESSAGE.get(category, "Sandbox authentication failed.")},
+                status=_SANDBOX_ERROR_HTTP_STATUS.get(category, 503))
+        finally:
+            # Testing candidate credentials never installs their token into runtime.
+            provider.clear_session_cache()
+        return values, None
 
     def post(self, request):
-        configuration = SandboxAPIConfiguration.objects.filter(provider="sandbox", is_active=True).first()
-        api_key = str(request.data.get("api_key") or "").strip()
-        api_secret = str(request.data.get("api_secret") or "")
-        environment = str(request.data.get("environment") or "test").strip().lower()
-        api_version = str(request.data.get("api_version") or "1.0.0").strip()
-        # A retry deliberately uses the encrypted active credentials on the
-        # server. Secrets are never sent back to the browser just to retry.
-        if configuration and not api_key and not api_secret:
-            from .services.sandbox_configuration import provider_config
-            saved = provider_config(configuration) or {}
-            api_key, api_secret = saved.get("api_key", ""), saved.get("api_secret", "")
-        if not api_key or not api_secret:
-            return Response({"detail": "API Key and API Secret are required."}, status=400)
-        from gst_tally.services.gst_lookup.providers.sandbox import SandboxGSTProvider, SandboxAuthenticationFailure
-        try:
-            provider = SandboxGSTProvider({"base_url": settings.SANDBOX_BASE_URL, "api_key": api_key, "api_secret": api_secret,
-                                           "api_version": api_version, "timeout": settings.GST_LOOKUP_TIMEOUT,
-                                           "access_ttl": settings.SANDBOX_ACCESS_TOKEN_TTL, "session_ttl": settings.SANDBOX_TAXPAYER_SESSION_TTL,
-                                           "auth_failure_cooldown": settings.SANDBOX_AUTH_FAILURE_COOLDOWN})
-            provider.authenticate(force=True, bypass_block=True)
-        except SandboxAuthenticationFailure as exc:
-            return Response({"authenticated": False, "code": "SANDBOX_AUTHENTICATION_FAILED", "detail": exc.safe_message}, status=502)
-        except Exception:
-            return Response({"authenticated": False, "code": "SANDBOX_AUTHENTICATION_FAILED", "detail": "Sandbox authentication failed."}, status=502)
-        clear_cached_access_token()
-        return Response({"authenticated": True, "lookup_ready": True, "message": "Sandbox connected."})
+        values, error = self._validate(request)
+        if error is not None:
+            return error
+        return Response({"authenticated": True, "credentials_status": "valid", "connection_status": "connected",
+                         "lookup_ready": True, "message": "Connection successful. Credentials valid."})
 
     def put(self, request):
-        existing = SandboxAPIConfiguration.objects.filter(provider="sandbox", is_active=True).first()
-        api_key = str(request.data.get("api_key") or "").strip()
-        api_secret = str(request.data.get("api_secret") or "")
-        environment = str(request.data.get("environment") or "test").strip().lower()
-        api_version = str(request.data.get("api_version") or "1.0.0").strip()
-        # Empty edit fields mean keep the encrypted active values; they must
-        # never overwrite a working secret with an empty string.
-        if existing and (not api_key or not api_secret):
-            from .services.sandbox_configuration import provider_config
-            saved = provider_config(existing) or {}
-            api_key = api_key or saved.get("api_key", "")
-            api_secret = api_secret or saved.get("api_secret", "")
-        if not api_key or not api_secret:
-            return Response({"detail": "Test the new API Key and API Secret before saving."}, status=400)
-        from gst_tally.services.gst_lookup.providers.sandbox import SandboxGSTProvider, SandboxAuthenticationFailure
-        try:
-            provider = SandboxGSTProvider({"base_url": settings.SANDBOX_BASE_URL, "api_key": api_key, "api_secret": api_secret,
-                                           "api_version": api_version, "timeout": settings.GST_LOOKUP_TIMEOUT,
-                                           "access_ttl": settings.SANDBOX_ACCESS_TOKEN_TTL, "session_ttl": settings.SANDBOX_TAXPAYER_SESSION_TTL,
-                                           "auth_failure_cooldown": settings.SANDBOX_AUTH_FAILURE_COOLDOWN})
-            provider.authenticate(force=True, bypass_block=True)
-        except SandboxAuthenticationFailure as exc:
-            return Response({"authenticated": False, "code": "SANDBOX_AUTHENTICATION_FAILED", "detail": exc.safe_message}, status=502)
-        except Exception:
-            return Response({"authenticated": False, "code": "SANDBOX_AUTHENTICATION_FAILED", "detail": "Sandbox authentication failed."}, status=502)
-        configuration, _ = SandboxAPIConfiguration.objects.update_or_create(
-            provider="sandbox", environment=environment,
-            defaults={"api_key_encrypted": encrypt(api_key), "api_secret_encrypted": encrypt(api_secret),
-                      "api_version": api_version, "is_active": True, "last_verified_at": timezone.now(),
-                      "last_error": "", "created_by": existing.created_by if existing else request.user,
-                      "updated_by": request.user})
-        SandboxAPIConfiguration.objects.filter(provider="sandbox").exclude(pk=configuration.pk).update(is_active=False)
-        clear_cached_access_token()
-        log_admin_action(request.user, "SANDBOX_CONFIGURATION_UPDATED", "SandboxAPIConfiguration", configuration.pk,
-                         old_value={"environment": existing.environment} if existing else None,
-                         new_value={"provider": "sandbox", "environment": environment, "result": "SUCCESS"}, ip_address=client_ip(request))
+        import uuid
+        from .services.sandbox_configuration import get_active_configuration
+        values, error = self._validate(request)
+        if error is not None:
+            return error
+        with transaction.atomic():
+            # The existing settings singleton serializes activation across environments.
+            settings_row = settings_service.get_settings()
+            type(settings_row).objects.select_for_update().get(pk=settings_row.pk)
+            existing = get_active_configuration()
+            if existing:
+                clear_cached_access_token(existing)
+            configuration, _ = SandboxAPIConfiguration.objects.update_or_create(
+                provider="sandbox", environment=values["environment"],
+                defaults={"api_key_encrypted": encrypt(values["api_key"]), "api_secret_encrypted": encrypt(values["api_secret"]),
+                          "api_version": values["api_version"], "is_active": True, "last_verified_at": timezone.now(),
+                          "credential_revision": uuid.uuid4(), "credentials_status": "valid", "connection_status": "connected",
+                          "session_expires_at": None, "expires_at": None, "last_error": "", "last_error_code": "",
+                          "created_by": existing.created_by if existing else request.user, "updated_by": request.user})
+            SandboxAPIConfiguration.objects.filter(provider="sandbox").exclude(pk=configuration.pk).update(is_active=False)
+            transaction.on_commit(clear_cached_access_token)
+            log_admin_action(request.user, "SANDBOX_CONFIGURATION_UPDATED", "SandboxAPIConfiguration", configuration.pk,
+                             old_value={"environment": existing.environment} if existing else None,
+                             new_value={"provider": "sandbox", "environment": values["environment"], "result": "SUCCESS"}, ip_address=client_ip(request))
         return Response(_sandbox_config_response(configuration))
 
 

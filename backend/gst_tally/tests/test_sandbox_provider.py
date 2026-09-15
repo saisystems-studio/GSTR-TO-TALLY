@@ -1,3 +1,4 @@
+from superadmin.services.sandbox_configuration import encrypt
 import json
 from datetime import timedelta
 from types import SimpleNamespace
@@ -56,7 +57,7 @@ class SandboxProviderTests(SimpleTestCase):
         self.assertEqual(headers["x-api-version"], "1.0.0")
 
     def test_otp_request_uses_company_identity_not_party_gstin(self):
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         opener = Opener([{"success": True}]); provider = SandboxGSTProvider(config(), opener)
         result = provider.request_otp("portal-user", GSTIN); request = opener.requests[0][0]
         self.assertEqual(request.full_url, "https://api.sandbox.co.in/gst/compliance/tax-payer/otp")
@@ -85,7 +86,7 @@ class SandboxProviderTests(SimpleTestCase):
                 super().__init__("https://api.sandbox.co.in/gst/compliance/public/gstin/search",
                                   500, "Internal Server Error", {}, None)
             def read(self): return self._body
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         def reject(request, timeout=None):
             raise BodiedHTTPError(json.dumps({"code": 500, "message": "Internal Server Error",
                                               "transaction_id": "txn-abc-123"}))
@@ -99,14 +100,14 @@ class SandboxProviderTests(SimpleTestCase):
         self.assertEqual(provider.last_provider_transaction_id, "txn-abc-123")
 
     def test_response_shape_is_tagged_for_diagnostics(self):
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         opener = Opener([{"code": 200, "data": {"gstin": "33AALFE2101R1ZF", "lgnm": "FLAT LEGAL"}}])
         provider = SandboxGSTProvider(config(), opener)
         provider.lookup("33AALFE2101R1ZF")
         self.assertEqual(provider.last_response_shape, "flat")
 
     def test_otp_rejection_is_not_mislabeled_as_application_auth_failure(self):
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         def responder(request, timeout=None):
             if request.full_url.endswith("/authenticate"): return Response({"access_token": "renewed-token"})
             raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
@@ -116,11 +117,11 @@ class SandboxProviderTests(SimpleTestCase):
         self.assertIn("GST portal username", caught.exception.safe_message)
 
     def test_verify_otp_stores_session_server_side_and_returns_no_token(self):
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         opener = Opener([{"data": {"taxpayer_session_token": "taxpayer-token-value", "expires_in": 3600}}])
         provider = SandboxGSTProvider(config(), opener); result = provider.verify_otp("123456", "portal-user", GSTIN)
         self.assertEqual(opener.requests[0][0].full_url, "https://api.sandbox.co.in/gst/compliance/tax-payer/otp/verify?otp=123456")
-        self.assertTrue(cache.get(_session_key(GSTIN))["token"])
+        self.assertTrue(cache.get(SandboxGSTProvider(config()).session_key(GSTIN))["token"])
         self.assertEqual(result, {"verified": True, "session_active": True, "code": "TAXPAYER_SESSION_ACTIVE"})
         self.assertNotIn("taxpayer-token-value", json.dumps(result))
 
@@ -131,7 +132,7 @@ class SandboxProviderTests(SimpleTestCase):
 
     def test_party_lookup_uses_application_auth_only_without_taxpayer_session(self):
         party_gstin = "33AALFE2101R1ZF"
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         opener = Opener([{"code": 200, "data": {"status_cd": "1", "data": {
             "gstin": party_gstin, "lgnm": "EXAMPLE LEGAL NAME", "tradeNam": "EXAMPLE TRADE NAME",
             "sts": "Active", "dty": "Regular", "rgdt": "01/04/2019", "ctb": "Partnership",
@@ -158,7 +159,7 @@ class SandboxProviderTests(SimpleTestCase):
 
     def test_real_party_principal_address_is_split_from_state_and_pincode(self):
         party_gstin = "33AALFE2101R1ZF"
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         opener = Opener([{"code": 200, "data": {"status_cd": "1", "data": {
             "gstin": party_gstin, "lgnm": "EM VEERU & CO", "tradeNam": "EM VEERU & CO",
             "sts": "Active", "dty": "Regular", "pradr": {"addr": {
@@ -178,7 +179,7 @@ class SandboxProviderTests(SimpleTestCase):
 
     def test_erp_style_taxpayer_details_shape_is_normalized_from_actual_nested_fields(self):
         party_gstin = "29AAACQ3770E000"
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         opener = Opener([{"code": 200, "data": {"Status": 1, "Data": {
             "Gstin": party_gstin, "LegalName": "Acme Industries Private Limited",
             "TradeName": "Acme Industries", "Status": "ACT", "TxpType": "REG",
@@ -200,7 +201,7 @@ class SandboxProviderTests(SimpleTestCase):
 
     def test_party_lookup_does_not_require_company_gstin_at_all(self):
         party_gstin = "33AALFE2101R1ZF"
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         opener = Opener([{"code": 200, "data": {"status_cd": "1", "data": {
             "gstin": party_gstin, "lgnm": "EXAMPLE LEGAL NAME", "tradeNam": "EXAMPLE TRADE NAME",
             "sts": "Active", "pradr": {"addr": {"loc": "Chennai", "stcd": "Tamil Nadu", "pncd": "600001"}}}}}])
@@ -225,7 +226,7 @@ class SandboxProviderTests(SimpleTestCase):
         self.assertIsNot(provider_class("sandbox"), provider_class("gstinapi"))
 
     def test_public_search_is_sent_immediately_without_a_taxpayer_session(self):
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         opener = Opener([{"code": 200, "data": {"status_cd": "1", "data": {
             "gstin": "33AALFE2101R1ZF", "lgnm": "EXAMPLE LEGAL", "tradeNam": "EXAMPLE TRADE", "sts": "Active"}}}])
         provider = SandboxGSTProvider(config(), opener)
@@ -237,7 +238,7 @@ class SandboxProviderTests(SimpleTestCase):
         self.assertEqual(result.gstin, "33AALFE2101R1ZF")
 
     def test_invalid_payload_records_real_http_200(self):
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         provider = SandboxGSTProvider(config(), Opener([{"code": 200, "data": {}}]))
         with self.assertRaises(Exception):
             provider.lookup("33AALFE2101R1ZF", company_gstin=GSTIN)
@@ -253,7 +254,7 @@ class SandboxCacheTests(TestCase):
                        SANDBOX_API_SECRET="configured")
     def test_public_search_200_is_normalized_saved_and_tally_ready_without_taxpayer_session(self):
         party_gstin = "33AALFE2101R1ZF"
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         provider = SandboxGSTProvider(config(), Opener([{"code": 200, "data": {"status_cd": "1", "data": {
             "gstin": party_gstin, "lgnm": "EXAMPLE LEGAL", "tradeNam": "EXAMPLE TRADE",
             "sts": "Active", "dty": "Regular", "pradr": {"addr": {
@@ -284,8 +285,8 @@ class SandboxCacheTests(TestCase):
                        SANDBOX_API_SECRET="configured")
     def test_active_session_provider_rejection_is_session_failed_not_fake_ready(self):
         party_gstin = "33AALFE2101R1ZF"
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
-        cache.set(_session_key(GSTIN), {"token": "taxpayer-token-value"}, 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
+        cache.set(SandboxGSTProvider(config()).session_key(GSTIN), {"token": encrypt("taxpayer-token-value")}, 300)
         def reject(request, timeout=None): raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
         provider = SandboxGSTProvider(config(), reject)
         with patch.object(GSTLookupService, "from_settings", return_value=GSTLookupService(provider)):
@@ -305,7 +306,7 @@ class SandboxCacheTests(TestCase):
                        SANDBOX_API_SECRET="configured")
     def test_invalid_200_payload_is_not_normalized_or_tally_ready(self):
         party_gstin = "33AALFE2101R1ZF"
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         provider = SandboxGSTProvider(config(), Opener([{"code": 200, "data": {}}]))
         with patch.object(GSTLookupService, "from_settings", return_value=GSTLookupService(provider)):
             status, party = process_gstin(party_gstin, batch=SimpleNamespace(company_gstin=GSTIN, source_parties={}), force=True)
@@ -337,7 +338,7 @@ class SandboxCacheTests(TestCase):
                 super().__init__("https://api.sandbox.co.in/gst/compliance/public/gstin/search",
                                   500, "Internal Server Error", {"x-request-id": "req-500"}, None)
             def read(self): return self._body
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         def reject(request, timeout=None):
             raise BodiedHTTPError(json.dumps({"code": 500, "message": "Internal Server Error",
                                               "transaction_id": "txn-abc-123"}))
@@ -390,7 +391,7 @@ class SandboxCacheTests(TestCase):
                                 taxpayer_type="Regular", lookup_source="GSTIN",
                                 lookup_status="Sandbox Lookup Failed", party_data_status="Complete",
                                 last_fetched_at=timezone.now())
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         provider = SandboxGSTProvider(config(), Opener([{"code": 200, "data": {"status_cd": "1", "data": {
             "gstin": party_gstin, "lgnm": "EM VEERU & CO", "tradeNam": "EM VEERU & CO",
             "sts": "Active", "dty": "Regular", "pradr": {"addr": {
@@ -430,7 +431,7 @@ class DynamicTaxpayerIdentityTests(TestCase):
         request = self.factory.get("/api/gst/sandbox/status/", {"batch_id": self.batch.id}); force_authenticate(request, user=self.user)
         response = SandboxStatusView.as_view()(request)
         self.assertTrue(response.data["configured"]); self.assertEqual(response.data["company_gstin"], GSTIN)
-        self.assertTrue(response.data["requires_username"])
+        self.assertFalse(response.data["requires_username"])
         self.assertTrue(response.data["lookup_ready"])
         self.assertFalse(response.data["session_required"])
         self.assertNotIn("code", response.data)
@@ -451,7 +452,7 @@ class DynamicTaxpayerIdentityTests(TestCase):
         self.assertEqual(response.status_code, 400); self.assertEqual(response.data["code"], "BATCH_ID_REQUIRED")
 
     @patch.object(SandboxGSTProvider, "authenticate", return_value="secret-token")
-    def test_authenticate_action_calls_real_application_auth_and_requests_otp_next(self, authenticate):
+    def test_authenticate_action_calls_real_application_auth_and_does_not_require_otp(self, authenticate):
         request = self.factory.post("/api/gst/sandbox/authenticate/", {"batch_id": self.batch.id}, format="json")
         force_authenticate(request, user=self.user)
 
@@ -461,8 +462,8 @@ class DynamicTaxpayerIdentityTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["authentication_attempted"])
         self.assertTrue(response.data["authenticated"])
-        self.assertTrue(response.data["otp_required"])
-        self.assertFalse(response.data["lookup_ready"])
+        self.assertFalse(response.data["otp_required"])
+        self.assertTrue(response.data["lookup_ready"])
         self.assertNotIn("secret-token", json.dumps(response.data))
 
     @patch.object(SandboxGSTProvider, "request_otp", return_value={"otp_required": True, "code": "OTP_SENT"})
@@ -508,7 +509,7 @@ class DynamicTaxpayerIdentityTests(TestCase):
                        SANDBOX_API_SECRET="configured")
     def test_expired_cached_session_does_not_block_public_lookup_readiness(self):
         from django.core.cache import cache
-        cache.set(_session_key(GSTIN), {"token": "expired", "expires_at": (timezone.now() - timedelta(seconds=1)).isoformat()}, 300)
+        cache.set(SandboxGSTProvider.from_settings().session_key(GSTIN), {"token": "expired", "expires_at": (timezone.now() - timedelta(seconds=1)).isoformat()}, 300)
         request = self.factory.get(f"/api/gst/sandbox/status/?batch_id={self.batch.id}")
         force_authenticate(request, user=self.user)
 

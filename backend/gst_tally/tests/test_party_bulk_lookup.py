@@ -1,3 +1,4 @@
+from superadmin.services.sandbox_configuration import encrypt
 from datetime import timedelta
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -77,7 +78,7 @@ class BulkPartyLookupTests(TestCase):
         GSTParty.objects.create(gstin=GSTIN_2, lookup_source="sandbox", lookup_status="Incomplete",
                                 party_data_status="Incomplete")
         from django.core.cache import cache
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
         provider = SandboxGSTProvider(config(), Opener([{"code": 200, "data": {"status_cd": "1", "data": {
             "gstin": GSTIN_2, "lgnm": "KARNATAKA LEGAL", "tradeNam": "KARNATAKA TRADE",
             "sts": "Active", "dty": "Regular", "pradr": {"addr": {
@@ -110,7 +111,7 @@ class BulkPartyLookupTests(TestCase):
         self.batch.source_parties = {GSTIN_1: {"party_name": "RE SUSTAINABILITY IWM SOLUTIONS LIMITED"}}
         self.batch.save(update_fields=["source_parties"])
         from django.core.cache import cache
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
 
         def reject(request, timeout=None):
             raise HTTPError(request.full_url, 500, "Internal Server Error", {}, None)
@@ -149,8 +150,8 @@ class BulkPartyLookupTests(TestCase):
         GSTParty.objects.create(gstin=GSTIN_2, lookup_source="sandbox", lookup_status="Incomplete",
                                 party_data_status="Incomplete")
         from django.core.cache import cache
-        cache.set(ACCESS_CACHE_KEY, "access-token-value", 300)
-        cache.set(_session_key(GSTIN_1), {"token": "taxpayer-token-value"}, 300)
+        cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)
+        cache.set(SandboxGSTProvider(config()).session_key(GSTIN_1), {"token": encrypt("taxpayer-token-value")}, 300)
         provider = SandboxGSTProvider(config(), Opener([{"code": 200, "data": {"status_cd": "1", "data": {
             "gstin": GSTIN_2, "lgnm": "KARNATAKA LEGAL", "tradeNam": "KARNATAKA TRADE",
             "sts": "Active", "dty": "Regular", "pradr": {"addr": {

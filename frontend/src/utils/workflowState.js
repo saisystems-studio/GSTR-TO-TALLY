@@ -342,19 +342,21 @@ export function nextWorkflowStep(state) {
 export function buildPrepState(screen, { batch, parties, connectionResult, verifyStage, companyResult, licenseResult, confirmed }) {
   const inParties = screen === 'parties'
   const partiesDone = Boolean(batch?.id)
-  const fetchDone = Boolean(parties?.parties?.length)
+  const fetchDone = Boolean(parties?.parties?.length) && !parties?.lookup_pending && !parties?.lookup_failed
   const connectionDone = isTallyConnectionReady(connectionResult)
   const connectionFailed = Boolean(connectionResult && !connectionDone)
   const companyDone = Boolean(companyResult?.company_verified)
   const companyFailed = Boolean(companyResult && !companyDone)
-  const licenseDone = Boolean(licenseResult?.license_verified)
+  const licenseDone = Boolean(licenseResult?.license_verified) && licenseResult?.product?.allowed !== false
   const licenseFailed = Boolean(licenseResult && !licenseDone)
+  const deviceDone = licenseResult?.device?.authorized === true && licenseResult?.device?.limit_allowed === true
   return {
     parties: partiesDone ? 'done' : inParties ? 'active' : 'pending',
-    fetch: fetchDone ? 'done' : inParties && !fetchDone ? 'active' : 'pending',
+    fetch: parties?.lookup_failed ? 'failed' : fetchDone ? 'done' : inParties && !fetchDone ? 'active' : 'pending',
     connection: connectionDone ? 'done' : connectionFailed ? 'failed' : inParties && fetchDone ? 'active' : 'pending',
     company: companyDone ? 'done' : companyFailed ? 'failed' : inParties && verifyStage === 'company' ? 'active' : 'pending',
-    license: licenseDone ? 'done' : licenseFailed ? 'failed' : inParties && verifyStage === 'license' ? 'active' : 'pending',
+    license: licenseDone ? 'done' : licenseFailed ? 'failed' : inParties && verifyStage ? 'active' : 'pending',
+    device: deviceDone ? 'done' : licenseResult ? 'failed' : inParties && verifyStage ? 'active' : 'pending',
     masters: confirmed ? 'done' : inParties && verifyStage === 'confirm' ? 'active' : 'pending',
   }
 }

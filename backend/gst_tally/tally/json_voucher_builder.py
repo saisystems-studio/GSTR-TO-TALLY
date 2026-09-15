@@ -24,8 +24,9 @@ def _ledger(name, value, debit=False, party=False, bill_reference=""):
 
 def build_json_voucher(voucher, company, period=None):
     invoice_date = date.fromisoformat(voucher["invoice_date"])
-    tally_date = invoice_date.strftime("%Y%m%d")
-    required_period = period or financial_year_details(invoice_date)
+    voucher_date = date.fromisoformat(voucher.get("voucher_date") or voucher["invoice_date"])
+    tally_date = voucher_date.strftime("%Y%m%d")
+    required_period = period or financial_year_details(voucher_date)
     voucher_type = voucher.get("voucher_type", "Sales")
     purchase = voucher_type == "Purchase"
     entries = [_ledger(voucher["party"]["name"], voucher["invoice_total"], debit=not purchase, party=True,

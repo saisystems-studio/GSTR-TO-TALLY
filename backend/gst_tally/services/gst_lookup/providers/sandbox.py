@@ -64,7 +64,17 @@ def _nested_value(payload, exact=(), token_predicate=None):
     return None
 
 def _ttl(payload, default):
-    value = _nested_value(payload, {"expires_in", "expiresin", "expiry", "expires"})
+    def find(data):
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if str(key).lower() in {"expires_in", "expiresin"} and isinstance(value, (str, int, float)):
+                    return value
+            for value in data.values():
+                found = find(value)
+                if found is not None:
+                    return found
+        return None
+    value = find(payload)
     try: return max(1, int(float(value)))
     except (TypeError, ValueError): return default
 
@@ -167,6 +177,7 @@ class SandboxGSTProvider(GSTLookupProvider):
 
     def __init__(self, config=None, opener=urlopen):
         self.config, self.opener = config or self.settings_config(), opener
+        self.runtime_configuration = config is None
         self.last_http_status, self.last_response_keys = None, []
         self.last_response_body, self.last_request_sent = None, False
         self.last_lookup_attempted = False
@@ -176,18 +187,69 @@ class SandboxGSTProvider(GSTLookupProvider):
         self.last_request_metadata = {}
 
     @staticmethod
-    def settings_config():
-        from superadmin.services.sandbox_configuration import provider_config
-        configured = provider_config()
-        return {"base_url": settings.SANDBOX_BASE_URL, "api_key": (configured or {}).get("api_key") or settings.SANDBOX_API_KEY,
-                "api_secret": (configured or {}).get("api_secret") or settings.SANDBOX_API_SECRET,
-                "api_version": (configured or {}).get("api_version") or settings.SANDBOX_API_VERSION,
-                "timeout": settings.GST_LOOKUP_TIMEOUT,
+    def config_for_credentials(configured=None):
+        # Environment values are a bootstrap fallback only when no DB row exists.
+        credentials = configured if configured is not None else {
+            "api_key": settings.SANDBOX_API_KEY, "api_secret": settings.SANDBOX_API_SECRET,
+            "api_version": settings.SANDBOX_API_VERSION,
+        }
+        base_url = ({"test": "https://test-api.sandbox.co.in", "production": "https://api.sandbox.co.in"}
+                    .get(credentials.get("environment"), settings.SANDBOX_BASE_URL))
+        return {"base_url": base_url, **credentials, "timeout": settings.GST_LOOKUP_TIMEOUT,
                 "access_ttl": settings.SANDBOX_ACCESS_TOKEN_TTL, "session_ttl": settings.SANDBOX_TAXPAYER_SESSION_TTL,
                 "auth_failure_cooldown": settings.SANDBOX_AUTH_FAILURE_COOLDOWN}
 
     @classmethod
-    def from_settings(cls): return cls(cls.settings_config())
+    def settings_config(cls):
+        from superadmin.services.sandbox_configuration import provider_config
+        return cls.config_for_credentials(provider_config())
+
+    @classmethod
+    def from_settings(cls):
+        provider = cls(cls.settings_config())
+        provider.runtime_configuration = True
+        return provider
+
+    def _reload_configuration(self):
+        if getattr(self, "runtime_configuration", False):
+            self.config = self.settings_config()
+
+    def cache_key(self, kind):
+        from superadmin.services.sandbox_configuration import cache_scope
+        return f"gst:sandbox:{kind}:{cache_scope(self.config)}"
+
+    def session_key(self, company_gstin):
+        return self.cache_key("taxpayer-session") + ":" + hashlib.sha256(str(company_gstin).strip().upper().encode()).hexdigest()
+
+    def clear_session_cache(self):
+        keys = cache.get(self.cache_key("session-index"), [])
+        cache.delete_many([self.cache_key("access-token"), self.cache_key("provider-block"), self.cache_key("session-index"), *keys])
+
+    def _record_runtime_status(self, **values):
+        if not self.config.get("configuration_id"):
+            return
+        from superadmin.models import SandboxAPIConfiguration
+        # An in-flight response from an old revision cannot overwrite new status.
+        SandboxAPIConfiguration.objects.filter(pk=self.config["configuration_id"], is_active=True,
+            credential_revision=self.config["credential_revision"]).update(**values)
+
+    def _redact(self, value):
+        text = str(value or "")
+        try:
+            payload = json.loads(text)
+            def scrub(item):
+                if isinstance(item, dict):
+                    return {key: "[REDACTED]" if any(part in str(key).lower() for part in ("token", "secret", "api_key", "api-key", "authorization")) else scrub(value) for key, value in item.items()}
+                if isinstance(item, list):
+                    return [scrub(value) for value in item]
+                return item
+            text = json.dumps(scrub(payload))
+        except (ValueError, TypeError):
+            pass
+        for secret in (self.config.get("api_key"), self.config.get("api_secret"), getattr(self, "_last_token", None)):
+            if secret:
+                text = text.replace(str(secret), "[REDACTED]")
+        return text
 
     @classmethod
     def configuration_issues(cls):
@@ -204,7 +266,7 @@ class SandboxGSTProvider(GSTLookupProvider):
         self.last_provider_code = self.last_provider_message = self.last_provider_transaction_id = None
         self.last_request_metadata = {
             "endpoint": path,
-            "url": url,
+            "url": self._url(path),
             "method": "POST",
             "body_keys": sorted(str(key) for key in body.keys()) if isinstance(body, dict) else [],
             "auth_token_attached": bool(headers.get("authorization")),
@@ -220,11 +282,11 @@ class SandboxGSTProvider(GSTLookupProvider):
                     if response_headers else ""
                 )
                 raw_body = response.read().decode("utf-8")
-                self.last_response_body = raw_body
+                self.last_response_body = "" if path == self.AUTH_PATH else self._redact(raw_body)
                 payload = json.loads(raw_body)
         except HTTPError as exc:
             self.last_http_status = exc.code
-            try: self.last_response_body = exc.read().decode("utf-8", "replace")
+            try: self.last_response_body = self._redact(exc.read().decode("utf-8", "replace"))
             except Exception: self.last_response_body = ""
             # Sandbox's own error envelope (distinct from an unhandled crash)
             # carries {code, message, transaction_id} -- surface it instead of
@@ -241,7 +303,7 @@ class SandboxGSTProvider(GSTLookupProvider):
             except AttributeError:
                 request_id = ""
             self.last_request_metadata["request_id"] = request_id
-            logger.warning("Sandbox GST lookup endpoint=%s status=%s request_id=%s body=%s",   path, exc.code, request_id, self.last_response_body)
+            logger.warning("Sandbox GST request endpoint=%s status=%s request_id=%s", path, exc.code, request_id)
             if exc.code in (401, 403):
                 error = GSTLookupAuthenticationError(f"Sandbox authentication failed (HTTP {exc.code}){detail}"); error.http_status = exc.code; raise error from exc
             if exc.code == 429:
@@ -257,10 +319,42 @@ class SandboxGSTProvider(GSTLookupProvider):
         return payload
 
     def authenticate(self, force=False, bypass_block=False):
+        self._reload_configuration()
+        if self.config.get("credentials_status") == "invalid" and not (force or bypass_block):
+            raise SandboxAuthenticationFailure("SANDBOX_AUTH_401", "GST party lookup credentials require an update. Contact the administrator.")
+        try:
+            return self._authenticate(force=force, bypass_block=bypass_block)
+        except SandboxAuthenticationFailure as exc:
+            invalid = exc.code in {"SANDBOX_AUTH_401", "SANDBOX_AUTH_403"}
+            # A candidate config being tested by Super Admin's Test Connection
+            # (no configuration_id -- see _record_runtime_status) has no
+            # persisted row to update and, more importantly, is a diagnostic
+            # call: the admin needs Sandbox's real reason ("Invalid API key"),
+            # not the generic end-user message a live GST-import lookup
+            # failure shows. Only a real, persisted configuration gets that
+            # substitution and the DB write.
+            if self.config.get("configuration_id"):
+                values = {"last_error_code": exc.code, "last_error": self._redact(exc.safe_message)[:255],
+                          "connection_status": "authentication_failed" if invalid else "unavailable"}
+                if invalid:
+                    self.clear_session_cache()
+                    values["credentials_status"] = "invalid"
+                    exc.safe_message = "GST party lookup credentials require an update. Contact the administrator."
+                    exc.args = (exc.safe_message,)
+                    values["last_error"] = exc.safe_message
+                self._record_runtime_status(**values)
+            raise
+
+    def _authenticate(self, force=False, bypass_block=False):
         if not force:
-            cached = cache.get(ACCESS_CACHE_KEY)
-            if cached: return cached
-        diagnostics = {"sandbox_configured": not self.configuration_issues(), "api_key_configured": bool(self.config.get("api_key")),
+            cached = cache.get(self.cache_key("access-token"))
+            if cached:
+                from superadmin.services.sandbox_configuration import decrypt
+                token = decrypt(cached)
+                if token:
+                    self._last_token = token
+                    return token
+        diagnostics = {"sandbox_configured": all(self.config.get(key) for key in ("base_url", "api_key", "api_secret")), "api_key_configured": bool(self.config.get("api_key")),
             "api_secret_configured": bool(self.config.get("api_secret")), "authenticate_attempted": True,
             "authenticate_http_status": None, "access_token_received": False, "response_keys": []}
         if not force and not bypass_block:
@@ -275,7 +369,7 @@ class SandboxGSTProvider(GSTLookupProvider):
             # authenticate() call, and a real Opener response, on every retry
             # of a GSTIN that failed for a reason having nothing to do with
             # the access token at all.
-            blocked = cache.get(PROVIDER_BLOCK_CACHE_KEY)
+            blocked = cache.get(self.cache_key("provider-block"))
             if blocked:
                 self.last_http_status = blocked.get("http_status")
                 self.last_provider_message = blocked.get("message")
@@ -299,22 +393,48 @@ class SandboxGSTProvider(GSTLookupProvider):
                 code = "SANDBOX_QUOTA_EXHAUSTED" if "quota" in message.casefold() else "SANDBOX_FORBIDDEN"
                 cooldown = self.config.get("auth_failure_cooldown", 60)
                 if cooldown:
-                    cache.set(PROVIDER_BLOCK_CACHE_KEY, {"code": code, "message": message, "http_status": 403}, cooldown)
+                    cache.set(self.cache_key("provider-block"), {"code": code, "message": message, "http_status": 403}, cooldown)
                 raise SandboxAuthenticationFailure(code, message, diagnostics) from exc
             code = f"SANDBOX_AUTH_{status_code}"
-            raise SandboxAuthenticationFailure(code, "Invalid Sandbox API credentials.", diagnostics) from exc
+            # Surface Sandbox's own error message (e.g. "Invalid API key")
+            # when it gave one -- it is already sanitized (comes from the
+            # provider's own JSON error body, never from our request), and a
+            # hardcoded "Invalid Sandbox API credentials." hides the real,
+            # more specific reason from the admin.
+            message = self.last_provider_message or "Invalid Sandbox API credentials."
+            raise SandboxAuthenticationFailure(code, message, diagnostics) from exc
+        except GSTLookupRateLimitError as exc:
+            diagnostics["authenticate_http_status"] = 429
+            raise SandboxAuthenticationFailure("SANDBOX_AUTH_429", "Sandbox rate limit reached during authentication.", diagnostics) from exc
         except GSTLookupTimeoutError as exc:
             raise SandboxAuthenticationFailure("SANDBOX_AUTH_TIMEOUT", "Sandbox authentication timed out.", diagnostics) from exc
         except SandboxNetworkError as exc:
             raise SandboxAuthenticationFailure("SANDBOX_AUTH_NETWORK_ERROR", "Sandbox authentication network request failed.", diagnostics) from exc
         except GSTLookupProviderError as exc:
             diagnostics.update(authenticate_http_status=self.last_http_status, response_keys=self.last_response_keys)
-            raise SandboxAuthenticationFailure("SANDBOX_AUTH_INVALID_RESPONSE", "Sandbox authentication returned an invalid response.", diagnostics) from exc
+            # A generic GSTLookupProviderError covers every non-401/403/429
+            # HTTPError plus a malformed/unparsable body -- distinguish "wrong
+            # endpoint" (404) and "Sandbox is down" (5xx) from a genuinely
+            # unrecognized response shape instead of collapsing all three.
+            status = self.last_http_status or 0
+            if status == 404:
+                code, message = "SANDBOX_AUTH_404", "Sandbox authentication endpoint was not found (check the configured base URL/environment)."
+            elif 500 <= status < 600:
+                code, message = "SANDBOX_AUTH_5XX", f"Sandbox authentication service error (HTTP {status})."
+            else:
+                code, message = "SANDBOX_AUTH_INVALID_RESPONSE", "Sandbox authentication returned an invalid response."
+            raise SandboxAuthenticationFailure(code, message, diagnostics) from exc
         diagnostics.update(authenticate_http_status=self.last_http_status, response_keys=self.last_response_keys)
         token = _nested_value(payload, {"access_token", "accesstoken"})
         if not token: raise SandboxAuthenticationFailure("SANDBOX_ACCESS_TOKEN_MISSING", "Sandbox access token was missing.", diagnostics)
         diagnostics["access_token_received"] = True; self.last_auth_diagnostics = diagnostics
-        cache.set(ACCESS_CACHE_KEY, token, _ttl(payload, self.config["access_ttl"]))
+        from superadmin.services.sandbox_configuration import encrypt
+        ttl = _ttl(payload, self.config["access_ttl"])
+        self._last_token = token
+        cache.set(self.cache_key("access-token"), encrypt(token), ttl)
+        self._record_runtime_status(credentials_status="valid", connection_status="connected", last_error="",
+                                    last_error_code="", last_verified_at=timezone.now(),
+                                    session_expires_at=timezone.now() + timedelta(seconds=ttl))
         return token
 
     def _taxpayer_body(self, username, company_gstin): return {"username": str(username).strip(), "gstin": str(company_gstin).strip().upper()}
@@ -343,7 +463,7 @@ class SandboxGSTProvider(GSTLookupProvider):
         except GSTLookupProviderError as exc:
             diagnostics["otp_http_status"] = self.last_http_status
             raise SandboxOTPRequestFailure("OTP_REQUEST_FAILED", "Sandbox OTP request failed.", diagnostics) from exc
-        cache.delete(_session_key(company_gstin))
+        cache.delete(self.session_key(company_gstin))
         diagnostics.update(otp_sent=True, otp_http_status=self.last_http_status)
         return {"otp_required": True, "code": "OTP_SENT", "message": "OTP sent successfully.", **diagnostics}
 
@@ -360,17 +480,23 @@ class SandboxGSTProvider(GSTLookupProvider):
             lambda key, value: isinstance(value, str) and value.strip() and "token" in key and "access" not in key)
         if not taxpayer_token: raise GSTLookupAuthenticationError("Sandbox taxpayer session token was missing")
         ttl = _ttl(payload, self.config["session_ttl"]); expires_at = timezone.now() + timedelta(seconds=ttl)
-        cache.set(_session_key(company_gstin), {"token": taxpayer_token, "expires_at": expires_at.isoformat(),
+        from superadmin.services.sandbox_configuration import encrypt
+        index_key = self.cache_key("session-index")
+        cache.set(index_key, list(set(cache.get(index_key, []) + [self.session_key(company_gstin)])), self.config["session_ttl"])
+        cache.set(self.session_key(company_gstin), {"token": encrypt(taxpayer_token), "expires_at": expires_at.isoformat(),
             "gstin": str(company_gstin).strip().upper(), "username": str(username).strip()}, ttl)
         return {"verified": True, "session_active": True, "code": "TAXPAYER_SESSION_ACTIVE"}
 
     def taxpayer_session_state(self, company_gstin):
-        session = cache.get(_session_key(company_gstin))
+        session = cache.get(self.session_key(company_gstin))
         expires_at = parse_datetime(str(session.get("expires_at") or "")) if isinstance(session, dict) else None
         expired = bool(expires_at and expires_at <= timezone.now())
         if expired:
-            cache.delete(_session_key(company_gstin))
+            cache.delete(self.session_key(company_gstin))
             session = None
+        if session:
+            from superadmin.services.sandbox_configuration import decrypt
+            session = {**session, "token": decrypt(session["token"])}
         return session, expired
 
     def get_taxpayer_session(self, company_gstin): return self.taxpayer_session_state(company_gstin)[0]
@@ -384,25 +510,41 @@ class SandboxGSTProvider(GSTLookupProvider):
         `taxpayer_session_active`/`session_active`/`requires_username` fields
         remain informational for the separate taxpayer OTP flow.
         """
-        issues = self.configuration_issues()
+        self._reload_configuration()
+        issues = [key for key in ("base_url", "api_key", "api_secret") if not self.config.get(key)]
         configured = not issues
+        invalid = self.config.get("credentials_status") == "invalid"
         session, session_expired = self.taxpayer_session_state(company_gstin) if company_gstin else (None, False)
         session_active = bool(session)
         return {"provider": "sandbox", "configured": configured, "provider_configured": configured,
                 "configuration_code": "" if configured else "SANDBOX_NOT_CONFIGURED",
                 "base_url_configured": bool(self.config.get("base_url")), "api_key_configured": bool(self.config.get("api_key")),
                 "api_secret_configured": bool(self.config.get("api_secret")), "missing": issues,
-                "authenticated": bool(cache.get(ACCESS_CACHE_KEY)),
+                "authenticated": bool(cache.get(self.cache_key("access-token"))),
                 "taxpayer_session_active": session_active, "session_active": session_active,
                 "session_required": False, "session_expired": session_expired,
-                "otp_required": False, "lookup_ready": configured,
-                "lookup_failed": False, "requires_username": not session_active,
+                "otp_required": False, "lookup_ready": configured and not invalid,
+                "lookup_failed": invalid, "requires_username": False,
                 "company_gstin": str(company_gstin or "").strip().upper(),
                 "gst_details_endpoint_configured": True,
-                "party_lookup_available": not issues,
+                "party_lookup_available": configured and not invalid,
                 "party_lookup_requires_taxpayer_session": False}
 
     def lookup(self, gstin, company_gstin="", force=False):
+        try:
+            result = self._lookup(gstin, company_gstin, force)
+            self._record_runtime_status(connection_status="connected", last_error="", last_error_code="")
+            return result
+        except GSTLookupAuthenticationError:
+            self._record_runtime_status(last_error="GST party lookup credentials require an update. Contact the administrator.",
+                                        last_error_code="SANDBOX_AUTH_FAILED", connection_status="authentication_failed")
+            raise
+        except (GSTLookupProviderError, GSTLookupTimeoutError):
+            self._record_runtime_status(last_error="GST party lookup is temporarily unavailable.",
+                                        last_error_code="SANDBOX_PROVIDER_UNAVAILABLE", connection_status="unavailable")
+            raise
+
+    def _lookup(self, gstin, company_gstin="", force=False):
         """Normal Party Details lookup: public GSTIN search using application auth only.
 
         No taxpayer OTP/session is requested or required here. `company_gstin`
@@ -436,7 +578,7 @@ class SandboxGSTProvider(GSTLookupProvider):
             self.last_lookup_attempted = True
             self.lookup_request_count += 1
             payload = self._post(self.PUBLIC_GSTIN_SEARCH_PATH, self._public_headers(token), {"gstin": gstin})
-        logger.info("Sandbox GST lookup gstin=%s status=%s body=%s", gstin, self.last_http_status, self.last_response_body)
+        logger.info("Sandbox GST lookup gstin=%s status=%s", gstin, self.last_http_status)
         status_cd, data, self.last_response_shape = _extract_public_search_data(payload)
         if not data:
             raise GSTLookupProviderError("Sandbox public GSTIN payload is empty")

@@ -9,7 +9,6 @@ from django.utils import timezone
 from ..models import CompanyDetails
 from ..tally.license_reader import read_tally_license
 from ..tally.odbc import normalize_company_name, odbc_company_status
-from .company import resolve_source_company_gstin
 from .party_lookup import normalize_gstin
 
 logger = logging.getLogger(__name__)
@@ -41,17 +40,8 @@ def verify_and_store_company(entered_company_name, expected_gstin="", client=Non
 
     company_source = ""
     if batch is not None:
-        # The source file's own return-owner GSTIN wins whenever it's
-        # present -- this only ever fills a genuine gap (batch.company_gstin
-        # blank, and not merely ambiguous), and only from the live Tally
-        # connection, never from any party/supplier/invoice-row GSTIN. See
-        # services/company.py::resolve_source_company_gstin.
-        resolved_gstin, _resolved_name, resolved_source = resolve_source_company_gstin(
-            batch, current_tally_company_gstin=current_tally_company_gstin,
-            current_tally_company_name=detected_company_name,
-        )
-        if resolved_gstin:
-            source_file_gstin, company_source = resolved_gstin, resolved_source
+        source_file_gstin = normalize_gstin(batch.company_gstin)
+        company_source = (batch.company_details or {}).get("company_source", "")
 
     # GSTIN is the primary company identity (the uploaded GSTR return's own
     # taxpayer GSTIN vs the GSTIN of the company currently open in Tally) --

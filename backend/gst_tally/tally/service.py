@@ -1945,6 +1945,12 @@ def prepare(batch, company_state=None):
             party["gstin"],
             party.get("state", ""),
         )
+        # Voucher construction intentionally keeps the uploaded source party
+        # untouched for import calculations.  Preview presentation, however,
+        # must use the current persisted taxpayer identity when Sandbox has
+        # enriched this GSTIN; otherwise a source GSTIN fallback remains
+        # visible even after a successful lookup.
+        preview_party_name = eligibility.get("party_name") or party.get("name") or party["gstin"]
         validation = validate_voucher(voucher)
         warnings, genuine_mismatch = [], False
         if validation["source_type"] == "manual":
@@ -2103,7 +2109,7 @@ def prepare(batch, company_state=None):
                 # (invoice_number/party_gstin/.../calculated_invoice_total/source_invoice_value/difference)
                 # -- same value as component_total, never recomputed.
                 "calculated_invoice_total": validation.get("component_total", "0.00"),
-                "party_name": voucher.get("party", {}).get("name", ""),
+                "party_name": preview_party_name,
                 "party_gstin": voucher.get("party", {}).get("gstin", ""),
                 "party_legal_name": voucher.get("party", {}).get("legal_name", ""),
                 "party_address": voucher.get("party", {}).get("address", ""),
@@ -4395,6 +4401,12 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
                 counts = {"total": len(vouchers), "eligible": len(batch_items), "attempted": len(batch_items),
                           "imported": len(batch_items), "already_imported": 0, "failed": 0, "skipped": 0,
                           "total_eligible": len(batch_items), "remaining": 0}
+                # The bulk path must reconcile the persisted registry/summary
+                # just like the per-voucher path.  Returning before this
+                # update left the UI correct for the job response while the
+                # database still reported PENDING on refresh/history screens.
+                if batch.company_import_summary_id:
+                    update_company_import_summary(batch.company_import_summary)
                 return {"batch_id": batch.id, "file_type": batch.file_type, **import_outcome(counts),
                         "import_status": "Import Successful", "paused": False,
                         "processed_before_pause": len(batch_items), "results": batch_results,

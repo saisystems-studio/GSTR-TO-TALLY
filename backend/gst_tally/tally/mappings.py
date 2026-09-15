@@ -93,6 +93,9 @@ def normalized_vouchers(batch, company):
             print("resolved_party_ledger_name:", party_name)
             print("name_source:", name_source)
             groups[key] = {"invoice_id": row.id, "invoice_number": row.invoice_no, "invoice_date": row.invoice_date.isoformat() if row.invoice_date else "",
+                "voucher_date": (row.voucher_date or row.invoice_date).isoformat() if (row.voucher_date or row.invoice_date) else "",
+                "is_carry_forward": row.is_carry_forward,
+                "original_period": row.original_period, "posting_period": row.posting_period,
                 "party": {"gstin": party_gstin, "trade_name": normalized_party["trade_name"], "name": party_name,
                           "name_source": name_source, "legal_name": normalized_party["legal_name"],
                           "mailing_name": party_name,

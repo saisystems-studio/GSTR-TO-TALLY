@@ -109,3 +109,28 @@ class TallyLicenseReaderTests(SimpleTestCase):
         result = read_tally_license(client)
 
         self.assertEqual(result["tally_software_services"], "")
+
+    @override_settings(TALLY_DRY_RUN=True)
+    def test_dry_run_never_blocks_the_live_license_read(self):
+        """Regression test: Step 3 Product License verification must always
+        read Tally's real serial number, even when TALLY_DRY_RUN=True (which
+        only suppresses voucher/master writes -- see tally/service.py's
+        import_batch). Before this fix, read_tally_license short-circuited
+        under dry run and always reported an empty serial/license_available,
+        which made Step 3 fail with a misleading PRODUCT_LICENSE_NOT_CONFIGURED
+        even though a real, valid product license existed."""
+        client = FakeTallyClient([
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><RESULT TYPE=\"Long\">123456789</RESULT></DATA></BODY></ENVELOPE>",
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><RESULT TYPE=\"Logical\">No</RESULT></DATA></BODY></ENVELOPE>",
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><RESULT TYPE=\"Logical\">Yes</RESULT></DATA></BODY></ENVELOPE>",
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><RESULT TYPE=\"Logical\">No</RESULT></DATA></BODY></ENVELOPE>",
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><RESULT TYPE=\"Logical\">Yes</RESULT></DATA></BODY></ENVELOPE>",
+            b"<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><RESULT TYPE=\"String\">admin@example.com</RESULT></DATA></BODY></ENVELOPE>",
+        ])
+
+        result = read_tally_license(client)
+
+        self.assertTrue(client.requests, "no request was sent to Tally under dry run")
+        self.assertTrue(result["license_available"])
+        self.assertEqual(result["serial_number"], "123456789")
+        self.assertNotEqual(result.get("license_error_detail"), "Tally dry run is enabled; no request was sent to Tally.")

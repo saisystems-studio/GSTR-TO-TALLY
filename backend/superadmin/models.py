@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -303,6 +305,12 @@ class SandboxAPIConfiguration(models.Model):
     is_active = models.BooleanField(default=True)
     last_verified_at = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=255, blank=True)
+    credential_revision = models.UUIDField(default=uuid.uuid4, editable=False)
+    credentials_status = models.CharField(max_length=20, default="unverified")
+    connection_status = models.CharField(max_length=30, default="unverified")
+    last_error_code = models.CharField(max_length=64, blank=True)
+    session_expires_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="sandbox_configurations_created")
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="sandbox_configurations_updated")
     created_at = models.DateTimeField(auto_now_add=True)

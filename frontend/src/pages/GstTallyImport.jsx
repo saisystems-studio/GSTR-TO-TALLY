@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import Step3Verification from '../components/gst-tally/Step3Verification'
+import { step3Ready } from '../utils/step3Verification'
 import DataTransferAnimation from '../components/gst-tally/DataTransferAnimation'
 import ImportTransfer3D from '../components/gst-tally/ImportTransfer3D'
 import TallyEngineOrbit from '../components/processing/TallyEngineOrbit'
@@ -36,7 +38,7 @@ import { finalImportToast } from '../utils/importOutcome'
 import { licenseFailureUi } from '../utils/licenseSecurityUi'
 import { getProcessingStage, getProcessingVisualMode, PROCESSING_READY_COMPLETE_MS } from '../utils/processingAnimation'
 import { filterPreviewRows } from '../utils/previewFormat'
-import { buildPrepState, canStartImport, companyDetailsReadiness, companyVerificationStatus, confirmMastersReadiness, defaultFileFormat, detectFileFormat, fileFormatExtension, filterMastersRows, isTallyConnectionReady, licenseVerificationStatus, mastersSummaryFromRows, normalizeCompanyVerificationResult, readyBreakdownText, searchMastersRows, shouldAutoStartImport, tallyConnectionErrorMessage, RETURN_TYPE_FILE_FORMATS } from '../utils/workflowState'
+import { buildPrepState, canStartImport, companyDetailsReadiness, confirmMastersReadiness, defaultFileFormat, detectFileFormat, fileFormatExtension, filterMastersRows, isTallyConnectionReady, mastersSummaryFromRows, normalizeCompanyVerificationResult, readyBreakdownText, searchMastersRows, shouldAutoStartImport, tallyConnectionErrorMessage, RETURN_TYPE_FILE_FORMATS } from '../utils/workflowState'
 import '../styles/gst-tally.css'
 
 const returnTypes = [
@@ -60,14 +62,6 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const ACTIVE_JOB_STATUSES = ['PENDING', 'RUNNING', 'VERIFYING']
 const TERMINAL_JOB_STATUSES = ['COMPLETED', 'PARTIAL', 'FAILED', 'INTERRUPTED']
 const JOB_POLL_INTERVAL_MS = 2000
-const RETRYABLE_LICENSE_ERRORS = new Set([
-  'TALLY_NOT_CONNECTED',
-  'TALLY_LICENSE_DATA_UNAVAILABLE',
-  'TALLY_LICENSE_ADMINISTRATOR_UNAVAILABLE',
-  'TALLY_LICENSE_EDITION_UNAVAILABLE',
-  'TALLY_LICENSE_TSS_UNAVAILABLE',
-  'TALLY_REQUEST_FAILED',
-])
 // Mirrors tally/client.py::TallyConnectionError's `code` values -- every
 // code that means "Tally itself dropped/never answered", as opposed to a
 // per-voucher rejection Tally responded to normally.
@@ -144,6 +138,8 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   const [companyName, setCompanyName] = useState('')
   const [companyResult, setCompanyResult] = useState(null)
   const [licenseResult, setLicenseResult] = useState(null)
+  const verificationAttempt = useRef(0)
+  const partyLookupAttempt = useRef(0)
   const [verifyStage, setVerifyStage] = useState(null)
   const [confirmed, setConfirmed] = useState(false)
   const [confirmDone, setConfirmDone] = useState(false)
@@ -188,6 +184,8 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   const [toast, setToast] = useState(null)
   const notify = (message, kind = 'success') => setToast({ message, kind })
   const resetWorkflow = () => {
+    verificationAttempt.current += 1
+    partyLookupAttempt.current += 1
     forgetLastBatch()
     setShowProfile(false)
     setScreen('upload')
@@ -390,12 +388,10 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  // Company + license verification, chained automatically once the Tally
-  // connection check succeeds -- no modal, no re-typed company name: Step 3
-  // (getTallyConnection) already read the exact name of the company open in
-  // Tally, so that's what gets verified. Callers (proceedFromPreview and the
-  // multi-GSTIN picker) each invoke this exactly once per attempt.
+  // Run company persistence and independent security checks together so a
+  // company mismatch never hides serial or device diagnostics.
   const runVerificationChain = async connection => {
+    const attempt = ++verificationAttempt.current
     const detectedCompanyName = connection?.company_name || connection?.company || ''
     setCompanyName(detectedCompanyName)
     // Clear any stale result from a previous attempt before this one starts,
@@ -403,21 +399,24 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
     setCompanyResult(null)
     setLicenseResult(null)
     setVerifyStage('company')
-    const companyOutcome = await verifyCompanyName(batch.id, detectedCompanyName)
-    setCompanyResult(companyOutcome)
-    if (!companyOutcome?.company_verified || !companyOutcome?.company_details_saved) {
-      throw new Error(companyOutcome?.message || 'Company Verification Failed. The selected company does not match the company currently open in Tally.')
-    }
-    setVerifyStage('license')
-    try {
-      const licenseOutcome = await verifyTallyLicense(batch.id)
-      setLicenseResult(licenseOutcome)
-    } catch (error) {
-      setLicenseResult({ license_available: false, license_verified: false, license_error: 'TALLY_LICENSE_DATA_UNAVAILABLE', message: error.message })
-    }
+    await Promise.allSettled([
+      verifyCompanyName(batch.id, detectedCompanyName).then(result => {
+        if (attempt === verificationAttempt.current) setCompanyResult(result)
+      }).catch(error => {
+        if (attempt === verificationAttempt.current) setCompanyResult({ company_verified: false, company_details_saved: false, message: error.message })
+      }),
+      verifyTallyLicense(batch.id).then(result => {
+        if (attempt === verificationAttempt.current) setLicenseResult(result)
+      }).catch(error => {
+        if (attempt === verificationAttempt.current) setLicenseResult({ ready: false, errors: [{ code: 'VERIFICATION_REQUEST_FAILED', message: error.message }] })
+      }),
+    ])
+    if (attempt === verificationAttempt.current) setVerifyStage(null)
   }
   const proceedFromPreview = async () => {
     if (!batch?.id) return
+    const lookupAttempt = ++partyLookupAttempt.current
+    verificationAttempt.current += 1
     setPartyProcessError('')
     setConnectionResult(null)
     setVerifyStage(null)
@@ -437,6 +436,7 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
       // whenever at least one party still needs it; already-fresh/cached
       // parties are skipped server-side, so this never re-fetches them.
       const needsLiveLookup = !result?.parties?.length || result.parties.some(party => party.status === 'Pending')
+      setParties({ ...result, lookup_pending: needsLiveLookup })
       if (needsLiveLookup) {
         setPhase('Fetching party details')
         // Tally connectivity is independent of party enrichment. Start both
@@ -447,22 +447,19 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
           setPhase('Checking Tally connection')
           return connection
         })
-        const [partyOutcome, connectionOutcome] = await Promise.allSettled([
-          fetchBatchParties(batch.id),
-          connectionPromise,
-        ])
-        if (partyOutcome.status === 'rejected') throw partyOutcome.reason
-        if (connectionOutcome.status === 'rejected') throw connectionOutcome.reason
-        result = partyOutcome.value
-        connection = connectionOutcome.value
-        if (!isTallyConnectionReady(connection)) throw new Error(tallyConnectionErrorMessage(connection))
+        fetchBatchParties(batch.id).then(result => {
+          if (lookupAttempt === partyLookupAttempt.current) setParties(result)
+        }).catch(error => {
+          if (lookupAttempt !== partyLookupAttempt.current) return
+          setParties({ ...result, lookup_failed: true })
+          setPartyProcessError(error.message || 'Party lookup failed. Retry party lookup.')
+        })
+        connection = await connectionPromise
       } else {
         setPhase('Checking Tally connection')
         connection = await getTallyConnection()
         setConnectionResult(connection)
-        if (!isTallyConnectionReady(connection)) throw new Error(tallyConnectionErrorMessage(connection))
       }
-      setParties(result)
       // The source company GSTIN is still ambiguous (multiple candidates) --
       // wait for the user's pick (inline selector) before verifying against
       // Tally; selectCompanyGstin resumes the chain from here once resolved.
@@ -494,7 +491,9 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
       const stillQuotaExhausted = (result?.parties || []).some(row => row?.sandbox_lookup?.sandbox_error_code === 'SANDBOX_QUOTA_EXHAUSTED')
       notify(stillQuotaExhausted
         ? 'Sandbox API quota is still exhausted. Please try again later.'
-        : 'Sandbox lookup retried. Party details refreshed where available.',
+        : result?.enrichment_complete
+          ? 'Party details updated.'
+          : `Party details partially updated — ${result?.remaining || 0} GSTINs still require attention`,
         stillQuotaExhausted ? 'error' : 'success')
     } catch (error) {
       notify(error.message || 'Unable to retry Sandbox lookup.', 'error')
@@ -1053,7 +1052,8 @@ const PREP_ITEMS = [
   ['fetch', 'Fetching party details', 'Retrieving available party details'],
   ['connection', 'Checking Tally connection', 'Establishing connection with Tally'],
   ['company', 'Verifying company', 'Matching the selected company with the company currently open in Tally.'],
-  ['license', 'Checking device authorization', 'Validating this authorized system'],
+  ['license', 'Checking product/Tally license', 'Verifying the registered serial and product capacity'],
+  ['device', 'Checking device authorization', 'Verifying this device and device capacity'],
   ['masters', 'Preparing masters', 'Preparing required masters for import'],
 ]
 const PREP_STATUS_LABEL = { done: 'Completed', active: 'In Progress', failed: 'Failed', pending: 'Pending' }
@@ -1098,7 +1098,7 @@ function PartyScreen({ loading, prepState, parties, error, connectionResult, com
   // real, backend-derived states (never a fabricated timing/security claim).
   const anyFailed = Object.values(prepState).includes('failed')
   const needsGstinPick = companyInfo?.error === 'MULTIPLE_COMPANY_GSTINS' && !companyResult
-  const readyToContinue = companyDetailsReadiness(companyResult).ready && Boolean(licenseResult)
+  const readyToContinue = companyDetailsReadiness(companyResult).ready && step3Ready(licenseResult)
   const allStepsDone = PREP_ITEMS.every(([key]) => (prepState[key] || 'pending') === 'done')
   // Same three real checks VerificationCard itself requires for "Verification
   // Complete" (Tally connected, company verified, license verified) -- used
@@ -1106,7 +1106,7 @@ function PartyScreen({ loading, prepState, parties, error, connectionResult, com
   // the confirmation card's own gating logic.
   const verificationComplete = prepState.connection === 'done'
     && companyDetailsReadiness(companyResult).companyVerified
-    && licenseResult?.license_available === true && licenseResult?.license_verified === true
+    && step3Ready(licenseResult)
   const operationStatus = anyFailed ? 'failed'
     : (needsGstinPick || readyToContinue) ? 'waiting'
       : allStepsDone ? 'completed'
@@ -1194,120 +1194,8 @@ function PartyScreen({ loading, prepState, parties, error, connectionResult, com
 // just surfaced as one compact card instead of two blocking dialogs. Reads
 // prepState (the same single status source the left timeline and right
 // engine already use) so it can never disagree with either.
-function VerificationCard({ prepState, connectionResult, companyInfo, companyResult, licenseResult, confirmLoading, confirmDone, onSelectGstin, onConfirmMasters, onRetryLicense }) {
-  const needsGstinPick = companyInfo?.error === 'MULTIPLE_COMPANY_GSTINS' && !companyResult
-  const companyStatus = companyVerificationStatus(companyResult)
-  const licenseStatus = licenseVerificationStatus(licenseResult)
-  const readiness = companyDetailsReadiness(companyResult)
-  const tallyConnected = prepState.connection === 'done'
-  // The exact "license_available && license_verified" contract the backend
-  // (services/product_license.py::verify_license_snapshot, via pre_import_
-  // security_check) returns -- never inferred from stale state.
-  const licenseVerified = licenseResult?.license_available === true && licenseResult?.license_verified === true
-  const licenseAttempted = Boolean(licenseResult)
-  const licenseFailedForReal = licenseAttempted && !licenseVerified && Boolean(licenseResult?.license_error)
-  const licenseFailureCode = licenseResult?.license_error || licenseResult?.verification_result || ''
-  // licenseVerificationStatus (workflowState.js) maps this exact code to a
-  // specific, customer-readable title/detail -- shown as the headline here
-  // instead of a single generic "License Verification Required" for every
-  // possible failure.
-  const licenseFailureTitle = licenseStatus.title || 'License Verification Required'
-  const licenseRetryable = licenseFailedForReal && RETRYABLE_LICENSE_ERRORS.has(licenseFailureCode)
-  // Master preparation is gated on the three mandatory backend-backed checks:
-  // Tally connected, company verified, and license verified.
-  readiness.readyToContinue = readiness.ready && licenseVerified
-  const verificationComplete = tallyConnected && readiness.companyVerified && licenseVerified
-
-  // The engine keeps the whole Live Processing area to itself while nothing
-  // needs the user's eyes -- a card only ever appears for the two moments
-  // that actually require attention: picking a GSTIN (blocking, stays open
-  // until resolved) and reaching a final ready/complete result (a brief
-  // popup that then collapses to a small chip). It never sits permanently
-  // docked over the animation. Hooks must run before any early return.
-  const readyForConfirmation = needsGstinPick || readiness.readyToContinue || licenseFailedForReal
-  const [popupVisible, setPopupVisible] = useState(false)
-  useEffect(() => {
-    if (!readyForConfirmation) { setPopupVisible(false); return }
-    setPopupVisible(true)
-    if (needsGstinPick) return // stays open -- this one requires an explicit user pick, not a timer
-    const timer = window.setTimeout(() => setPopupVisible(false), 2600)
-    return () => window.clearTimeout(timer)
-  }, [readyForConfirmation, needsGstinPick])
-
-  if (!connectionResult || !readyForConfirmation) return null
-  const companyLabel = companyResult?.current_tally_company_name || companyResult?.company?.company_name || companyResult?.detected_company || connectionResult?.company_name || connectionResult?.company || '-'
-  const gstin = companyResult?.current_tally_company_gstin || companyResult?.company_gstin || connectionResult?.company_gstin || connectionResult?.gstin || '-'
-  // source_file_gstin is the uploaded GSTR return's own taxpayer GSTIN
-  // (never a supplier/party GSTIN, never a ProductLicense GSTIN) -- shown
-  // alongside the currently-open Tally company's GSTIN so a mismatch is
-  // visible at a glance instead of only inferred from the pass/fail state.
-  const sourceGstin = companyResult?.source_file_gstin || licenseResult?.source_file_gstin || ''
-  const companyMatchText = prepState.company === 'active' ? 'Checking...' : companyStatus.label === 'Matched' ? 'Verified' : companyStatus.label
-  const licenseText = prepState.license === 'active' ? 'Checking...' : licenseVerified ? 'Verified' : licenseStatus.label
-  const cardTitle = verificationComplete ? <><span className="verify-card-check" aria-hidden="true">✓</span> Verification Complete</>
-    : licenseFailedForReal ? licenseFailureTitle
-      : readiness.readyToContinue ? 'Ready to Prepare Masters'
-        : 'Verifying...'
-
-  const cardBody = <>
-    <div className="verify-card-title">{cardTitle}</div>
-    <div className="verify-mini-checks">
-      <span className={`mini-check mini-check-${prepState.connection}`}><MiniCheckIcon status={prepState.connection} /> Tally Connected</span>
-      <span className={`mini-check mini-check-${prepState.company}`}><MiniCheckIcon status={prepState.company} /> Company Verified</span>
-      <span className={`mini-check mini-check-${prepState.license}`}><MiniCheckIcon status={prepState.license} /> {prepState.license === 'active' ? 'Checking Authorization...' : 'Device Authorized'}</span>
-    </div>
-    {needsGstinPick && <div className="verify-gstin-picker">
-      <p>Multiple company GSTINs were found in this return. Select the correct one to continue verification.</p>
-      <select defaultValue="" onChange={event => event.target.value && onSelectGstin(event.target.value)}>
-        <option value="">Select GSTIN</option>
-        {(companyInfo.company_gstin_candidates || []).map(value => <option key={value}>{value}</option>)}
-      </select>
-    </div>}
-    {companyResult && <dl className="verify-fields">
-      {sourceGstin && <div><dt>Source GSTIN</dt><dd>{sourceGstin}</dd></div>}
-      <div><dt>Company</dt><dd>{companyLabel}</dd></div>
-      <div><dt>Tally GSTIN</dt><dd>{gstin}</dd></div>
-      <div><dt>Tally</dt><dd>{tallyConnected ? 'Connected' : 'Checking...'}</dd></div>
-      <div><dt>GSTIN Match</dt><dd className={`verify-tone-${companyStatus.tone}`}>{companyMatchText}</dd></div>
-      <div><dt>License</dt><dd className={`verify-tone-${licenseVerified ? 'success' : licenseFailedForReal ? 'error' : licenseStatus.tone}`}>{licenseText}</dd></div>
-    </dl>}
-    {licenseFailedForReal && <div className="verify-license-error">
-      <strong>{licenseStatus.title || 'License verification failed.'}</strong>
-      {(licenseResult?.registered_tally_serial || licenseResult?.detected_tally_serial || licenseResult?.serial_number) && <div className="verify-license-serials">
-        {licenseResult?.registered_tally_serial && <span>Registered Serial: {licenseResult.registered_tally_serial}</span>}
-        {(licenseResult?.detected_tally_serial || licenseResult?.serial_number) && <span>Detected Serial: {licenseResult.detected_tally_serial || licenseResult.serial_number}</span>}
-      </div>}
-      <span>Error: {licenseResult.license_error}</span>
-      {licenseStatus.detail && <small>{licenseStatus.detail}</small>}
-    </div>}
-    {readiness.readyToContinue && <div className="verify-summary-footer">
-      <span className={`verify-summary-ready ${verificationComplete ? '' : 'verify-summary-ready-partial'}`}><span aria-hidden="true">✓</span> Ready to prepare masters</span>
-      <LoadingButton className={confirmDone ? 'is-confirmed' : ''} loading={confirmLoading && !confirmDone} disabled={confirmDone} onClick={onConfirmMasters}>
-        {confirmDone ? <><span aria-hidden="true">✓</span> Confirmed</> : confirmLoading ? 'Confirming...' : 'Confirm & Continue'}
-      </LoadingButton>
-    </div>}
-    {licenseFailedForReal && <div className="verify-summary-footer">
-      <span className="verify-summary-ready verify-summary-ready-partial"><span aria-hidden="true">!</span> {licenseFailureTitle}</span>
-      {licenseRetryable
-        ? <LoadingButton className="is-secondary" onClick={onRetryLicense}>Retry License Check</LoadingButton>
-        : <LoadingButton className="is-secondary" disabled>Contact Administrator</LoadingButton>}
-    </div>}
-  </>
-
-  const chipWarning = licenseFailedForReal
-
-  return <>
-    <div className={`verify-popup-overlay ${popupVisible ? 'is-visible' : ''} ${confirmDone ? 'is-confirming' : ''}`} aria-live="polite">
-      <div className={`verify-card verify-popup-card ${verificationComplete ? 'verify-card-complete' : ''} ${licenseFailedForReal ? 'verify-card-warning' : ''}`}>{cardBody}</div>
-    </div>
-    {!needsGstinPick && <div className={`verify-collapsed-chip ${popupVisible ? '' : 'is-visible'} ${chipWarning ? 'verify-collapsed-chip-warning' : ''}`}>
-      <span className="verify-collapsed-check" aria-hidden="true">{verificationComplete ? '✓' : '!'}</span>
-      <span className="verify-collapsed-text">{verificationComplete ? 'Verification Complete' : licenseFailedForReal ? licenseFailureTitle : 'License Verification Required'}</span>
-      {licenseFailedForReal ? (licenseRetryable ? <LoadingButton className="is-secondary" onClick={onRetryLicense}>Retry License Check</LoadingButton> : <LoadingButton className="is-secondary" disabled>Contact Administrator</LoadingButton>) : <LoadingButton className={confirmDone ? 'is-confirmed' : ''} loading={confirmLoading && !confirmDone} disabled={confirmDone} onClick={onConfirmMasters}>
-        {confirmDone ? '✓ Confirmed' : confirmLoading ? 'Confirming...' : 'Confirm & Continue'}
-      </LoadingButton>}
-    </div>}
-  </>
+function VerificationCard(props) {
+  return <Step3Verification {...props} />
 }
 
 function MiniCheckIcon({ status }) {
@@ -1554,7 +1442,7 @@ function VoucherScreen({ result, loading, validated, batchId, reviewRow, onValid
   const [viewRow, setViewRow] = useState(null)
   const [filter, setFilter] = useState('All')
   const [search, setSearch] = useState('')
-  const vouchers = (result?.vouchers || []).map(row => ({ ...row, invoice_date_iso: row.invoice_date, invoice_date: formatDate(row.invoice_date) }))
+  const vouchers = (result?.vouchers || []).map(row => ({ ...row, invoice_date_iso: row.invoice_date, invoice_date: formatDate(row.invoice_date), voucher_date: formatDate(row.voucher_date || row.invoice_date) }))
   const mismatchStatuses = VOUCHER_MISMATCH_STATUSES
   // Round Off summary (task spec's optional strip): counted independently of
   // the Ready/Needs Attention stats above, which must remain unchanged --
@@ -1588,7 +1476,7 @@ function VoucherScreen({ result, loading, validated, batchId, reviewRow, onValid
       <div className="voucher-header-actions">
         {anyFallback && onRetrySandboxLookup && <div className="voucher-sandbox-popover" role="status">
           <span>Sandbox enrichment incomplete</span>
-          <LoadingButton className="text-button" loading={sandboxRetryBusy} onClick={retryAndRevalidate}>{sandboxRetryBusy ? 'Retrying...' : 'Retry'}</LoadingButton>
+          <LoadingButton className="text-button" loading={sandboxRetryBusy} onClick={retryAndRevalidate}>{sandboxRetryBusy ? 'Fetching Party Details...' : 'Retry'}</LoadingButton>
         </div>}
         <label className="voucher-search"><span className="voucher-search-icon" aria-hidden="true">⌕</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search invoice / party / GSTIN..." aria-label="Search vouchers" /></label>
         {vouchers.length > 0 && <VoucherSummaryButton counts={{ total: vouchers.length, ready, attention: mismatch, eligible: result?.summary?.eligible || 0, alreadyImported: result?.summary?.already_imported || 0 }} />}
@@ -1601,7 +1489,7 @@ function VoucherScreen({ result, loading, validated, batchId, reviewRow, onValid
       </div>
     </div>
     <div className="voucher-table-area">
-      {loading && !result ? <TableSkeleton cols={13} /> : <DataTable columns={['Invoice', 'Date', 'Party', 'GSTIN', 'Taxable', 'CGST', 'SGST', 'IGST', 'Component Total', 'Round Off', 'Final Total', 'Status', 'Action']} rows={filtered} empty="No vouchers match this filter." render={(row, index) => {
+      {loading && !result ? <TableSkeleton cols={14} /> : <DataTable columns={['Invoice', 'Invoice Date', 'Voucher Date', 'Party', 'GSTIN', 'Taxable', 'CGST', 'SGST', 'IGST', 'Component Total', 'Round Off', 'Final Total', 'Status', 'Action']} rows={filtered} empty="No vouchers match this filter." render={(row, index) => {
         const mismatchRow = mismatchStatuses.includes(row.status)
         const partyName = row.party_name || row.party?.name || row.party?.trade_name || row.party?.legal_name || row.party_gstin || row.party?.gstin || '-'
         const partyGstin = row.party_gstin || row.party?.gstin || '-'
@@ -1611,7 +1499,7 @@ function VoucherScreen({ result, loading, validated, batchId, reviewRow, onValid
           const itemComponentTotal = ['taxable_value', 'cgst', 'sgst', 'igst', 'cess']
             .reduce((total, field) => total + Number(item[field] || 0), 0)
           return <tr key={`${row.invoice_number}-${index}-item-${itemIndex}`} className={`voucher-item-row${isLastItem ? ' invoice-last-item' : ''}`}>
-          <td>{row.invoice_number || '-'}</td><td>{row.invoice_date || '-'}</td><td className="voucher-party-cell" title={partyName}>{partyName}</td><td>{partyGstin}</td>
+          <td>{row.invoice_number || '-'}</td><td>{row.invoice_date || '-'}</td><td>{row.voucher_date || row.invoice_date || '-'}</td><td className="voucher-party-cell" title={partyName}>{partyName}</td><td>{partyGstin}</td>
           <td className="voucher-num">{money(item.taxable_value)}</td><td className="voucher-num">{money(item.cgst)}</td><td className="voucher-num">{money(item.sgst)}</td><td className="voucher-num">{money(item.igst)}</td>
           <td className="voucher-num">{money(itemComponentTotal)}</td>
           {isLastItem ? <><td className={`voucher-num voucher-round-off voucher-round-off-${roundOffSign(row.round_off).toLowerCase()}`}>{signedMoney(row.round_off)}</td><td className="voucher-num voucher-final-total">{money(row.final_voucher_total)}</td>
@@ -1809,7 +1697,11 @@ function ImportScreen({ result, jobStatus, pauseAction, voucherResult, connectio
   const resultEligibleCount = Number(result?.summary?.total_eligible ?? result?.summary?.eligible ?? readyCount)
   const remaining = Math.max(0, resultEligibleCount - imported - failedCount - skippedCount - pendingCount)
   const importStatus = result?.import_status || ''
-  const isSuccess = hasResult && imported > 0 && imported === resultEligibleCount && failedCount === 0 && skippedCount === 0 && pendingCount === 0
+  // The backend only emits Import Successful after the final Tally
+  // acknowledgement and persisted registry reconciliation. Prefer that
+  // authoritative outcome over a stale/mismatched client-side preview count,
+  // while still requiring zero unresolved failures before showing success.
+  const isSuccess = hasResult && ['Import Successful', 'Import Verified'].includes(importStatus) && imported > 0 && failedCount === 0 && pendingCount === 0
   const isPartial = hasResult && !isSuccess && imported > 0
   const isCompleteFailure = hasResult && imported === 0
   const isPending = importStatus === 'Write Accepted - Verification Pending'
@@ -1982,7 +1874,7 @@ function ImportScreen({ result, jobStatus, pauseAction, voucherResult, connectio
                   <div className="import-progress-stats">
                     <button type="button" className="stat-box imported is-clickable" onClick={() => openStatusDetails('imported')} aria-label="View imported vouchers">
                       <span className="stat-icon" aria-hidden="true">✓</span>
-                      <span className="stat-number">{fmtNum(hasResult ? newlyImported : displayedImported)}</span>
+                      <span className="stat-number">{fmtNum(hasResult ? imported : displayedImported)}</span>
                       <span className="stat-label">Imported</span>
                     </button>
                     <button type="button" className="stat-box already-imported is-clickable" onClick={() => openStatusDetails('already_imported')} aria-label="View already imported vouchers">

@@ -213,6 +213,9 @@ class GSTImportBatch(models.Model):
     file_size = models.PositiveBigIntegerField(default=0)
     source_fingerprint = models.CharField(max_length=64, blank=True)
     uploaded_at = models.DateTimeField(default=timezone.now, editable=False)
+    # Source/preview rows are operational data, not the audit trail.  The
+    # registry below remains permanent and is the sole duplicate authority.
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     class Meta:
@@ -263,6 +266,10 @@ class GSTCompanyImportSummary(models.Model):
 class GSTInvoice(models.Model):
     import_batch = models.ForeignKey(GSTImportBatch, related_name="invoices", on_delete=models.CASCADE)
     invoice_date = models.DateField(null=True, blank=True)
+    voucher_date = models.DateField(null=True, blank=True)
+    is_carry_forward = models.BooleanField(default=False)
+    original_period = models.CharField(max_length=20, blank=True)
+    posting_period = models.CharField(max_length=20, blank=True)
     # customer_gstin keeps its long-standing meaning: the counterparty GSTIN
     # the Tally voucher-building pipeline (tally/mappings.py) reads for every
     # return type -- the recipient for GSTR-1, the supplier for GSTR-2A/2B
@@ -320,6 +327,7 @@ class GSTInvoice(models.Model):
             models.Index(fields=["invoice_date"], name="gst_inv_date_idx"),
             models.Index(fields=["source_type"], name="gst_inv_source_idx"),
             models.Index(fields=["filing_period"], name="gst_inv_period_idx"),
+            models.Index(fields=["is_carry_forward", "posting_period"], name="gst_inv_carry_period_idx"),
         ]
 
 class GSTParty(models.Model):
@@ -518,3 +526,39 @@ class TallyImportJob(models.Model):
     class Meta:
         db_table = "tally_import_job_tbl"
         indexes = [models.Index(fields=["batch", "status"], name="tally_import_job_batch_idx")]
+
+
+class LocalTallyAgent(models.Model):
+    """An outbound-only Windows agent.  The token is stored as a SHA-256
+    digest; the plaintext is shown only at provisioning time."""
+    device = models.OneToOneField(LicensedDevice, related_name="local_tally_agent", on_delete=models.CASCADE)
+    token_hash = models.CharField(max_length=64, unique=True)
+    detected_serial = models.CharField(max_length=64, blank=True)
+    detected_company_gstin = models.CharField(max_length=15, blank=True)
+    detected_company_name = models.CharField(max_length=255, blank=True)
+    tally_reachable = models.BooleanField(default=False)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    class Meta:
+        db_table = "local_tally_agent_tbl"
+        indexes = [models.Index(fields=["detected_company_gstin", "last_seen_at"], name="agent_gstin_seen_idx")]
+
+
+class LocalTallyJob(models.Model):
+    QUEUED, CLAIMED, SENDING, SUCCESS, FAILED, RETRYABLE, EXPIRED = (
+        "QUEUED", "CLAIMED", "SENDING_TO_TALLY", "SUCCESS", "FAILED", "RETRYABLE", "EXPIRED")
+    agent = models.ForeignKey(LocalTallyAgent, related_name="jobs", on_delete=models.PROTECT)
+    batch = models.ForeignKey(GSTImportBatch, related_name="local_agent_jobs", on_delete=models.CASCADE)
+    job_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
+    idempotency_key = models.CharField(max_length=64, unique=True)
+    payload = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
+    status = models.CharField(max_length=20, default=QUEUED)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    acknowledgement = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        db_table = "local_tally_job_tbl"
+        indexes = [models.Index(fields=["agent", "status", "created_at"], name="agent_job_claim_idx")]

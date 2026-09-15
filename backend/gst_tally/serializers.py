@@ -30,6 +30,8 @@ class GSTImportBatchSerializer(serializers.ModelSerializer):
         return get_tally_mapping(obj.gst_return_type).as_dict()
 
     def get_upload_status_message(self, obj):
+        if obj.total_rows and obj.duplicate_rows == obj.total_rows and not obj.imported_rows:
+            return f"All {obj.total_rows} records are already imported for this company."
         if not obj.duplicate_rows:
             return ""
         return (

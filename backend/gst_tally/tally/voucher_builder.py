@@ -98,7 +98,8 @@ def build_voucher(voucher, company, period=None):
     ET.SubElement(variables, "SVCURRENTCOMPANY").text = company
 
     invoice_date = date.fromisoformat(voucher["invoice_date"])
-    required_period = period or financial_year_details(invoice_date)
+    voucher_date = date.fromisoformat(voucher.get("voucher_date") or voucher["invoice_date"])
+    required_period = period or financial_year_details(voucher_date)
     ET.SubElement(variables, "SVFROMDATE", {"TYPE": "Date"}).text = required_period["start"].strftime("%d-%b-%Y")
     ET.SubElement(variables, "SVTODATE", {"TYPE": "Date"}).text = required_period["end"].strftime("%d-%b-%Y")
 
@@ -113,13 +114,15 @@ def build_voucher(voucher, company, period=None):
         {"VCHTYPE": voucher_type, "ACTION": "Create", "OBJVIEW": "Invoice Voucher View"},
     )
 
-    tally_date = invoice_date.strftime("%Y%m%d")
+    tally_date = voucher_date.strftime("%Y%m%d")
     ET.SubElement(node, "DATE").text = tally_date
     ET.SubElement(node, "EFFECTIVEDATE").text = tally_date
     ET.SubElement(node, "VOUCHERTYPENAME").text = voucher_type
     ET.SubElement(node, "VOUCHERNUMBER").text = voucher["invoice_number"]
     ET.SubElement(node, "REFERENCE").text = voucher["invoice_number"]
-    ET.SubElement(node, "REFERENCEDATE").text = tally_date
+    # The reference is the original supplier/customer invoice, while DATE is
+    # the Tally posting date for an approved carry-forward.
+    ET.SubElement(node, "REFERENCEDATE").text = invoice_date.strftime("%Y%m%d")
 
     party = voucher.get("party") or {}
     party_name = party["name"]

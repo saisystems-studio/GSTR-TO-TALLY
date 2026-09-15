@@ -23,6 +23,7 @@ RETURN_TYPES = canonical_invoice.RETURN_TYPES
 # GSTR-1 it was never populated per row.
 CANONICAL_COLUMNS = [
     ("invoice_date", "Invoice Date", "date"),
+    ("voucher_date", "Voucher Date", "date"),
     ("customer_gstin", "Customer GSTIN", None),
     ("invoice_no", "Invoice No", None),
     ("taxable_value", "Taxable Value", "money"),

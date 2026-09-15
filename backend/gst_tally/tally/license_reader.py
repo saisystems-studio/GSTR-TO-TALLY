@@ -16,8 +16,6 @@ field) is still shown instead of being discarded.
 import logging
 from xml.etree import ElementTree as ET
 
-from django.conf import settings
-
 from .client import TallyClient, TallyConnectionError
 from .read_requests import build_license_query_xml
 
@@ -113,9 +111,13 @@ def read_tally_license(client=None):
     is always ``None``/``False`` here -- deciding whether the fetched identity
     is *accepted* for this company is services.tally_license's job, not this
     reader's.
+
+    Always performs a live read against Tally, regardless of
+    ``settings.TALLY_DRY_RUN``: that setting only suppresses writes (see
+    ``tally/service.py``'s ``import_batch``), and Product License / device
+    authorization is a security control that must never be satisfied (or
+    blocked) by a config flag meant for voucher/master import.
     """
-    if settings.TALLY_DRY_RUN:
-        return _unavailable("Tally dry run is enabled; no request was sent to Tally.")
     active_client = client or TallyClient()
     try:
         values = {}

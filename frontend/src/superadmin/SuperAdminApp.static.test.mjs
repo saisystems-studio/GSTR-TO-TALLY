@@ -111,15 +111,15 @@ test('super admin shell supports compact profile and collapsible sidebar', () =>
   assert.match(styles, /\.sa-profile-chip\s*\{[^}]*padding:\s*8px 14px[^}]*border-radius:\s*999px/s, 'top profile pill should be compact')
 })
 
-test('step 3 verification popup blocks master confirmation on license failure', () => {
+test('step 3 verification popup blocks master confirmation on verification failure', () => {
   const page = readFileSync(resolve(srcRoot, 'pages', 'GstTallyImport.jsx'), 'utf8')
-
-  assert.match(page, /readiness\.readyToContinue\s*=\s*readiness\.ready\s*&&\s*licenseVerified/, 'Step 3 must require verified license before master confirmation')
-  assert.match(page, /License Verification Required/, 'Step 3 should name a failed mandatory license check')
-  assert.match(page, /RETRYABLE_LICENSE_ERRORS/, 'Step 3 should limit retry to temporary Tally read/connection failures')
-  assert.match(page, /PRODUCT_LICENSE_NOT_CONFIGURED/, 'Step 3 should treat missing registered serial as setup-required')
-  assert.match(page, /Contact Administrator/, 'Step 3 should send setup-required failures to the administrator')
-  assert.match(page, /registered_tally_serial/, 'Step 3 should show registered serial when available')
-  assert.match(page, /detected_tally_serial/, 'Step 3 should show detected serial when available')
-  assert.doesNotMatch(page, /readiness\.readyToContinue\s*=\s*readiness\.ready\s*&&\s*licenseAttempted/, 'Step 3 must not allow continue just because license was attempted')
+  const popup = readFileSync(resolve(srcRoot, 'components', 'gst-tally', 'Step3Verification.jsx'), 'utf8')
+  const verification = readFileSync(resolve(srcRoot, 'utils', 'step3Verification.js'), 'utf8')
+  assert.match(page, /Step3Verification/, 'Step 3 must render the verification popup')
+  assert.match(popup, /step3Ready\(licenseResult\)/, 'Confirmation must require all independent checks')
+  assert.match(popup, /disabled=\{!complete \|\| confirmDone\}/, 'Incomplete verification must disable confirmation')
+  assert.match(popup, /errors\.map/, 'Every reported problem must be visible')
+  assert.match(popup, /PRODUCT_LICENSE_NOT_CONFIGURED/, 'Missing registration must be explained')
+  assert.match(verification, /registered_serial/, 'Registered serial must be visible')
+  assert.match(verification, /detected_serial/, 'Detected serial must be visible')
 })

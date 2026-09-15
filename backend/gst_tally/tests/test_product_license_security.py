@@ -81,7 +81,7 @@ class ProductLicenseSecurityTests(TestCase):
         self.assertFalse(LicensedDevice.objects.filter(license=self.license, device_fingerprint="DEV-NEW").exists())
         self.assertTrue(LicenseAuditLog.objects.filter(license=self.license, event_type="TALLY_SERIAL_MISMATCH").exists())
 
-    def test_same_tally_serial_different_gstin_blocks_current_company(self):
+    def test_same_tally_serial_different_gstin_is_allowed_as_another_company(self):
         result = verify_license_snapshot(
             activation_key="G2T-PRO-2026-0001",
             device_fingerprint="DEV-81F4A2C9",
@@ -91,10 +91,29 @@ class ProductLicenseSecurityTests(TestCase):
             source="activation",
         )
 
-        self.assertEqual(result["verification_result"], "COMPANY_GSTIN_MISMATCH")
-        self.assertFalse(result["ready"])
-        self.assertFalse(LicensedDevice.objects.filter(license=self.license).exists())
-        self.assertTrue(LicenseAuditLog.objects.filter(license=self.license, event_type="GSTIN_MISMATCH").exists())
+        self.assertEqual(result["verification_result"], "LICENSE_VERIFIED")
+        self.assertTrue(result["ready"])
+        self.assertTrue(result["device_authorized"])
+        self.assertTrue(LicensedDevice.objects.filter(license=self.license).exists())
+
+    def test_same_tally_serial_allows_multiple_company_gstins_without_name_matching(self):
+        for gstin, company_name in (
+            ("33BBBB2222B1Z2", "Company B"),
+            ("33CCCC3333C1Z3", "Company C"),
+        ):
+            with self.subTest(gstin=gstin):
+                result = verify_license_snapshot(
+                    license_obj=self.license,
+                    user=self.user,
+                    device_fingerprint="SHARED-WORKSTATION",
+                    device_name="Shared Tally Workstation",
+                    detected_tally_serial="735149529",
+                    current_company_name=company_name,
+                    current_company_gstin=gstin,
+                    source="pre_import",
+                )
+                self.assertEqual(result["verification_result"], "LICENSE_VERIFIED")
+                self.assertTrue(result["ready_for_master_preparation"])
 
     def test_matching_serial_and_gstin_registers_first_device_and_verifies_license(self):
         result = verify_license_snapshot(
@@ -123,7 +142,7 @@ class ProductLicenseSecurityTests(TestCase):
         self.assertEqual(device.app_version, "1.0.0")
         self.assertTrue(LicenseAuditLog.objects.filter(license=self.license, event_type="DEVICE_REGISTERED").exists())
 
-    def test_new_device_when_slot_full_creates_pending_request_not_active_device(self):
+    def test_device_limit_blocks_new_device_even_with_authorized_serial_and_company(self):
         LicensedDevice.objects.create(
             license=self.license,
             device_fingerprint="DEV-OLD",
@@ -144,10 +163,54 @@ class ProductLicenseSecurityTests(TestCase):
 
         self.assertEqual(result["verification_result"], "DEVICE_LIMIT_REACHED")
         self.assertFalse(result["ready"])
+        self.assertFalse(result["device_authorized"])
         self.assertFalse(LicensedDevice.objects.filter(license=self.license, device_fingerprint="DEV-NEW", status=LicensedDevice.ACTIVE).exists())
-        request = DeviceActivationRequest.objects.get(license=self.license, requested_device_fingerprint="DEV-NEW")
-        self.assertEqual(request.status, DeviceActivationRequest.PENDING)
-        self.assertEqual(request.old_device.device_fingerprint, "DEV-OLD")
+
+    def test_wrong_serial_and_wrong_gstin_is_blocked_on_serial_first(self):
+        result = verify_license_snapshot(
+            activation_key="G2T-PRO-2026-0001",
+            device_fingerprint="DEV-NEW",
+            device_name="OFFICE-PC-01",
+            detected_tally_serial="000000",
+            current_company_gstin="27AAAAA0000A1Z5",
+            source="activation",
+        )
+
+        self.assertEqual(result["verification_result"], "TALLY_SERIAL_MISMATCH")
+        self.assertFalse(result["ready"])
+        self.assertFalse(LicensedDevice.objects.filter(license=self.license, device_fingerprint="DEV-NEW").exists())
+
+    def test_suspended_license_blocks_verification(self):
+        self.license.status = ProductLicense.SUSPENDED
+        self.license.save(update_fields=["status"])
+
+        result = verify_license_snapshot(
+            license_obj=self.license,
+            user=self.user,
+            device_fingerprint="DEV-81F4A2C9",
+            detected_tally_serial="735149529",
+            current_company_gstin="33AFHPM6103Q1Z8",
+            source="startup",
+        )
+
+        self.assertEqual(result["verification_result"], "LICENSE_SUSPENDED")
+        self.assertFalse(result["ready"])
+
+    def test_expired_license_blocks_verification(self):
+        self.license.expiry_date = timezone.localdate() - timedelta(days=1)
+        self.license.save(update_fields=["expiry_date"])
+
+        result = verify_license_snapshot(
+            license_obj=self.license,
+            user=self.user,
+            device_fingerprint="DEV-81F4A2C9",
+            detected_tally_serial="735149529",
+            current_company_gstin="33AFHPM6103Q1Z8",
+            source="startup",
+        )
+
+        self.assertEqual(result["verification_result"], "LICENSE_EXPIRED")
+        self.assertFalse(result["ready"])
 
     def test_existing_device_updates_last_seen_and_verifies(self):
         old_time = timezone.now() - timedelta(days=1)
@@ -402,9 +465,9 @@ class ProductLicensePreImportTests(TestCase):
 
     @patch("gst_tally.services.product_license.read_tally_license")
     @patch("gst_tally.services.product_license.step3_connection_check")
-    def test_pre_import_gstin_already_bound_to_a_different_serial_is_rejected(self, mock_connection, mock_license):
-        # A GSTIN already licensed under one Tally serial must never be
-        # silently reused under a different, unlicensed serial.
+    def test_pre_import_historical_gstin_mapping_does_not_override_serial_authorization(self, mock_connection, mock_license):
+        # Historical company mappings are display/history data only. The
+        # registered Tally serial remains the installation authorization.
         TallyCompanyMapping.objects.create(gstin="29XYZDE5678G1Z2", license_serial="111111111",
                                            tally_company_name="ABC ENTERPRISES")
         self.license.licensed_tally_serial = "77611"
@@ -424,8 +487,8 @@ class ProductLicensePreImportTests(TestCase):
 
         result = pre_import_security_check(second_batch, self.user, device_fingerprint="DEV-81F4A2C9")
 
-        self.assertEqual(result["license_error"], "GSTIN_LICENSE_SERIAL_MISMATCH")
-        self.assertFalse(result["ready_for_master_preparation"])
+        self.assertEqual(result["verification_result"], "LICENSE_VERIFIED")
+        self.assertTrue(result["ready_for_master_preparation"])
 
     @patch("gst_tally.services.product_license.read_tally_license")
     @patch("gst_tally.services.product_license.step3_connection_check")

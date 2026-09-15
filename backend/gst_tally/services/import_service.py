@@ -1,7 +1,9 @@
 import logging
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 from gst_tally.models import GSTImportBatch, GSTInvoice, ProductLicense
 from . import canonical_invoice
@@ -23,6 +25,17 @@ from gst_tally.utils.uploaded_files import file_type_label, validate_upload_type
 logger = logging.getLogger(__name__)
 
 RETURN_TYPES = canonical_invoice.RETURN_TYPES
+
+
+def cleanup_expired_processing_rows(now=None):
+    """Delete only temporary batches.  Protected invoice mappings mean a
+    batch with a Tally audit trail is retained; permanent registry records are
+    never deleted either way."""
+    now = now or timezone.now()
+    stale = GSTImportBatch.objects.filter(expires_at__lt=now)
+    # A batch whose invoices have successful mappings is audit evidence. Its
+    # raw source is emptied only when it has no protected mapping rows.
+    return stale.filter(tally_vouchers__isnull=True).delete()[0]
 
 
 def _current_product_license(user, company_gstin):
@@ -145,6 +158,7 @@ def _dedupe_rows(rows, *, company_gstin, return_type, user, registry_by_hash=Non
 @transaction.atomic
 def import_file(file_obj, return_type, return_period, user=None, selected_tally_company="",
                 stable_tally_company_id=""):
+    cleanup_expired_processing_rows()
     if return_type not in RETURN_TYPES:
         raise ValueError("Unsupported return type")
     # Format (how the file is read) and return type (which alias/party
@@ -216,7 +230,8 @@ def import_file(file_obj, return_type, return_period, user=None, selected_tally_
         company_resolution_status=metadata.get("company_resolution_status", ""),
         company_resolution_error=metadata.get("company_resolution_error", ""),
         tax_period=period, file_hash=file_hash, file_size=file_size, source_fingerprint=fingerprint,
-        uploaded_by=user if user and user.is_authenticated else None)
+        uploaded_by=user if user and user.is_authenticated else None,
+        expires_at=timezone.now() + timedelta(hours=24))
     invoices = []
     failed_rows = 0
     for row in new_rows:
@@ -224,6 +239,16 @@ def import_file(file_obj, return_type, return_period, user=None, selected_tally_
             row.pop("_voucher_identity_hash", None)
             row["filing_period"] = row.get("filing_period") or period
             row["filing_type"] = row.get("filing_type") or return_type
+            # The source date remains immutable.  A prior-period row uploaded
+            # into a later processing period posts on that period's first day.
+            invoice_date = row.get("invoice_date")
+            posting_period = period or row.get("filing_period") or ""
+            original_period = row.get("filing_period") or ""
+            if invoice_date and posting_period:
+                from .carry_forward import posting_date_for
+                voucher_date, carry = posting_date_for(invoice_date, original_period, posting_period)
+                row.update(voucher_date=voucher_date, is_carry_forward=carry,
+                           original_period=original_period, posting_period=posting_period)
             invoice = GSTInvoice.objects.create(import_batch=batch, **row)
             invoices.append(invoice)
             if summary:
