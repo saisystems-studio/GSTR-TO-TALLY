@@ -110,7 +110,7 @@ def _counts_from_results(results):
     return imported, failed, pending, skipped
 
 
-def start_import_job(batch, request_id=""):
+def start_import_job(batch, request_id="", local_agent=None):
     """Attach to an existing healthy job, surface a stale one as INTERRUPTED
     without silently resuming it, or start a genuinely new one.
 
@@ -146,7 +146,7 @@ def start_import_job(batch, request_id=""):
             existing.status = "INTERRUPTED"
             existing.save(update_fields=["status"])
             return existing, "interrupted"
-        job = TallyImportJob.objects.create(batch=batch, status="PENDING", request_id=request_id,
+        job = TallyImportJob.objects.create(batch=batch, local_agent=local_agent, status="PENDING", request_id=request_id,
                                             total=0, heartbeat_at=timezone.now())
         return job, "started"
 
@@ -218,6 +218,7 @@ def resume_job(job_id):
 def _run_job(job_id):
     from .service import import_batch, WRITE_ACCEPTED_PENDING_STATUS
     from .client import TallyClient, TallyConnectionError
+    from .local_agent_transport import LocalAgentTallyClient
     from gst_tally.models import GSTImportBatch
 
     job = get_job(job_id)
@@ -229,7 +230,8 @@ def _run_job(job_id):
     job.save(update_fields=["status", "heartbeat_at"])
     try:
         batch = GSTImportBatch.objects.get(pk=job.batch_id)
-        result = import_batch(batch, client=TallyClient(), progress_callback=_make_progress_callback(job_id),
+        client = LocalAgentTallyClient(job.local_agent, batch) if job.local_agent_id else TallyClient()
+        result = import_batch(batch, client=client, progress_callback=_make_progress_callback(job_id),
                               should_pause_callback=_make_should_pause_callback(job_id))
         if result.get("paused"):
             # Never reached a terminal outcome -- counts here describe an

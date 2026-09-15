@@ -115,18 +115,57 @@ class LocalTallyAgentHeartbeatView(APIView):
                          "verified": verified, "tally_reachable": bool(request.data.get("tally_reachable"))})
 
 
+class LocalTallyAgentStatusView(APIView):
+    """Connection state for the signed-in customer's registered device.
+
+    The browser never receives the agent credential and cannot select another
+    customer's agent: both the license owner and active-device state are
+    enforced by this lookup.
+    """
+    def get(self, request):
+        fingerprint = str(request.headers.get("X-Device-Fingerprint", "") or request.query_params.get("device_fingerprint", "")).strip()
+        devices = LicensedDevice.objects.filter(
+            license__customer=request.user, status=LicensedDevice.ACTIVE
+        )
+        if fingerprint:
+            devices = devices.filter(device_fingerprint=fingerprint)
+        agent = (LocalTallyAgent.objects.select_related("device__license")
+                 .filter(device__in=devices).order_by("-last_seen_at").first())
+        if not agent:
+            return Response({"status": "Agent Offline", "connected": False, "verified": False})
+        online = bool(agent.last_seen_at and (timezone.now() - agent.last_seen_at).total_seconds() <= 90)
+        verified = bool(online and agent.tally_reachable)
+        if not online:
+            label = "Agent Offline"
+        elif not agent.detected_serial or not agent.detected_company_gstin:
+            label = "Tally Not Running"
+        elif not verified:
+            label = "Wrong Company Open"
+        else:
+            label = "Ready to Import"
+        return Response({
+            "status": label, "connected": online, "verified": verified,
+            "tally_reachable": bool(agent.tally_reachable),
+            "company_name": agent.detected_company_name,
+            "company_gstin": agent.detected_company_gstin,
+            "last_seen_at": agent.last_seen_at.isoformat() if agent.last_seen_at else None,
+        })
+
+
 class LocalTallyAgentNextJobView(APIView):
     permission_classes = [AllowAny]
     def post(self, request):
         agent = _agent_from_request(request)
         if not agent:
             return Response({"detail": "Invalid agent token."}, status=401)
+        if not agent.tally_reachable:
+            return Response({"detail": "Tally/company license is not verified."}, status=403)
         with transaction.atomic():
             job = (LocalTallyJob.objects.select_for_update(skip_locked=True)
                    .filter(agent=agent, status=LocalTallyJob.QUEUED).order_by("created_at").first())
             if not job:
                 return Response(status=204)
-            job.status, job.claimed_at = LocalTallyJob.CLAIMED, timezone.now()
+            job.status, job.claimed_at = LocalTallyJob.SENDING, timezone.now()
             job.save(update_fields=["status", "claimed_at"])
         return Response({"job_id": str(job.job_id), "idempotency_key": job.idempotency_key, "payload": job.payload})
 
@@ -138,6 +177,8 @@ class LocalTallyAgentJobResultView(APIView):
         if not agent:
             return Response({"detail": "Invalid agent token."}, status=401)
         job = get_object_or_404(LocalTallyJob, job_id=job_id, agent=agent)
+        if job.status in (LocalTallyJob.SUCCESS, LocalTallyJob.FAILED):
+            return Response({"accepted": True, "status": job.status})
         success = bool(request.data.get("success"))
         # The agent acknowledgement is retained; server-side registry mutation
         # is intentionally delegated to the existing verified Tally pipeline.
@@ -820,7 +861,25 @@ class CompanyVerifyView(APIView):
         return Response(verify_and_store_company(entered_company, batch.company_gstin, batch=batch))
 
 class TallyConnectionView(APIView):
-    def get(self, request): return Response(step3_connection_check())
+    def get(self, request):
+        # On the VPS, localhost is the VPS itself.  In agent-required mode the
+        # connection screen must therefore reflect the customer's outbound
+        # agent heartbeat, never attempt a misleading VPS localhost probe.
+        if getattr(settings, "TALLY_LOCAL_AGENT_REQUIRED", False):
+            fingerprint = request.headers.get("X-Device-ID", "")
+            agent = (LocalTallyAgent.objects.filter(
+                device__license__customer=request.user, device__status=LicensedDevice.ACTIVE,
+                device__device_fingerprint=fingerprint,
+            ).order_by("-last_seen_at").first())
+            online = bool(agent and agent.last_seen_at and (timezone.now() - agent.last_seen_at).total_seconds() <= 90)
+            ready = bool(online and agent.tally_reachable)
+            label = "Ready to Import" if ready else "Agent Offline" if not online else "Wrong Company Open"
+            return Response({"agent_status": label, "can_import": ready, "company_open": ready,
+                             "read_connected": ready, "http_connected": ready, "tally_connected": ready,
+                             "company_name": agent.detected_company_name if agent else "",
+                             "company_gstin": agent.detected_company_gstin if agent else "",
+                             "message": label})
+        return Response(step3_connection_check())
 
 class TallyLicenseView(APIView):
     def post(self, request, pk):
@@ -906,7 +965,15 @@ class TallyImportView(APIView):
                 status=403,
             )
         request_id = request.headers.get("X-Request-ID", "") or str(request.data.get("request_id", ""))
-        job, outcome = start_import_job(batch, request_id=request_id)
+        fingerprint = request.headers.get("X-Device-Fingerprint", "") or request.headers.get("X-Device-ID", "")
+        agent = (LocalTallyAgent.objects.select_related("device__license").filter(
+            device__license=batch.product_license, device__status=LicensedDevice.ACTIVE,
+            tally_reachable=True, detected_company_gstin=batch.company_gstin,
+            device__device_fingerprint=fingerprint or "__no_matching_device__",
+        ).first())
+        if getattr(settings, "TALLY_LOCAL_AGENT_REQUIRED", False) and not agent:
+            return Response({"code": "TALLY_AGENT_OFFLINE", "message": "Local Tally Agent is offline or the registered company is not open."}, status=409)
+        job, outcome = start_import_job(batch, request_id=request_id, local_agent=agent)
         # serialize_job() always carries the job row's OWN status (RUNNING,
         # PENDING, ...) under the same "status" key -- it must be spread
         # first so the outcome literal below (what the frontend actually

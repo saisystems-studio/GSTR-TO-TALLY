@@ -5,7 +5,7 @@ from .views import (BatchCompanyView, BatchDetailView, BatchListView, BatchParti
                     TallyImportJobPauseView, TallyImportJobResumeView, TallyImportJobStatusView, TallyImportView, TallyLicenseView,
                     ProductLicenseActivateView, ProductLicenseHeartbeatView, ProductLicensePreImportCheckView, ProductLicenseVerifyView,
                     TallyMastersView, TallyVoucherCorrectionView, TallyVoucherPreviewView,
-                    LocalTallyAgentProvisionView, LocalTallyAgentHeartbeatView, LocalTallyAgentNextJobView, LocalTallyAgentJobResultView)
+                    LocalTallyAgentProvisionView, LocalTallyAgentHeartbeatView, LocalTallyAgentStatusView, LocalTallyAgentNextJobView, LocalTallyAgentJobResultView)
 
 urlpatterns = [
     path("preview/", SourcePreviewView.as_view()), path("import/", ImportView.as_view()),
@@ -32,6 +32,7 @@ urlpatterns = [
     path("license/verify/", ProductLicenseVerifyView.as_view()),
     path("license/heartbeat/", ProductLicenseHeartbeatView.as_view()),
     path("local-agent/provision/", LocalTallyAgentProvisionView.as_view()),
+    path("local-agent/status/", LocalTallyAgentStatusView.as_view()),
     path("local-agent/heartbeat/", LocalTallyAgentHeartbeatView.as_view()),
     path("local-agent/next-job/", LocalTallyAgentNextJobView.as_view()),
     path("local-agent/jobs/<uuid:job_id>/result/", LocalTallyAgentJobResultView.as_view()),

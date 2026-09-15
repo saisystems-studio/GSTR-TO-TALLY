@@ -495,6 +495,10 @@ class TallyImportJob(models.Model):
     """
     job_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
     batch = models.ForeignKey(GSTImportBatch, related_name="tally_import_jobs", on_delete=models.CASCADE)
+    # Set only for a VPS import.  Development installations may retain the
+    # direct local client without changing their existing workflow.
+    local_agent = models.ForeignKey("LocalTallyAgent", related_name="import_jobs", null=True, blank=True,
+                                    on_delete=models.PROTECT)
     status = models.CharField(max_length=20, default="PENDING")
     # Set by the pause endpoint, read by the running worker thread before
     # each voucher (see tally/import_job.py's should_pause_callback wiring)
