@@ -28,14 +28,21 @@ RETURN_TYPES = canonical_invoice.RETURN_TYPES
 
 
 def cleanup_expired_processing_rows(now=None):
-    """Delete only temporary batches.  Protected invoice mappings mean a
-    batch with a Tally audit trail is retained; permanent registry records are
-    never deleted either way."""
+    """Finalize audit summaries and delete expired temporary sessions only.
+
+    This function deliberately imports no Tally/local-agent modules and
+    performs no network work.  Cascade relationships remove invoices,
+    mappings, registry rows, jobs, source JSON, and correction state.
+    """
     now = now or timezone.now()
-    stale = GSTImportBatch.objects.filter(expires_at__lt=now)
-    # A batch whose invoices have successful mappings is audit evidence. Its
-    # raw source is emptied only when it has no protected mapping rows.
-    return stale.filter(tally_vouchers__isnull=True).delete()[0]
+    with transaction.atomic():
+        stale = list(GSTImportBatch.objects.select_for_update().filter(expires_at__lte=now))
+        for batch in stale:
+            if batch.company_import_summary_id:
+                from .import_summary import update_company_import_summary
+                update_company_import_summary(batch.company_import_summary)
+        deleted, _ = GSTImportBatch.objects.filter(pk__in=[batch.pk for batch in stale]).delete()
+    return {"expired_sessions": len(stale), "deleted_rows": deleted}
 
 
 def _current_product_license(user, company_gstin):
@@ -57,7 +64,8 @@ def _current_product_license(user, company_gstin):
     return qs.order_by("-last_verified_at", "-created_at").first()
 
 
-def _dedupe_rows(rows, *, company_gstin, return_type, user, registry_by_hash=None, company_scope_id=None):
+def _dedupe_rows(rows, *, company_gstin, return_type, user, registry_by_hash=None, company_scope_id=None,
+                 active_batch=None):
     """Split parsed rows into (new_rows, duplicate_count, already_imported_count,
     retry_candidate_count). duplicate_count includes already_imported_count
     (every already-imported row is also a duplicate of a prior successful
@@ -107,14 +115,9 @@ def _dedupe_rows(rows, *, company_gstin, return_type, user, registry_by_hash=Non
     ]
     existing = set()
     if row_fingerprints:
-        scope = GSTInvoice.objects.filter(dedup_fingerprint__in=set(row_fingerprints),
-                                          import_batch__gst_return_type=return_type)
-        if company_scope_id:
-            scope = scope.filter(import_batch__company_scope_id=company_scope_id)
-        elif company_gstin:
-            scope = scope.filter(import_batch__company_gstin=company_gstin)
-        elif user and getattr(user, "is_authenticated", False):
-            scope = scope.filter(import_batch__uploaded_by=user)
+        scope = GSTInvoice.objects.filter(
+            dedup_fingerprint__in=set(row_fingerprints), import_batch=active_batch
+        ) if active_batch else GSTInvoice.objects.none()
         existing = set(scope.values_list("dedup_fingerprint", flat=True))
     registry_by_hash = registry_by_hash or {}
     new_rows, prepared_retries, duplicate_count, already_imported_count = [], set(), 0, 0
@@ -194,18 +197,23 @@ def import_file(file_obj, return_type, return_period, user=None, selected_tally_
     ]
     for row, voucher_hash in zip(rows, voucher_hashes):
         row["_voucher_identity_hash"] = voucher_hash
+    active_batch = GSTImportBatch.objects.select_for_update().filter(
+        company_gstin=company_gstin, gst_return_type=return_type,
+        company_scope_id=company_scope_id, expires_at__gt=timezone.now(),
+    ).order_by("-uploaded_at").first() if company_gstin else None
     registry_by_hash = (
         registry_rows_for_hashes(
+            batch=active_batch,
             company_gstin=company_gstin,
             return_type=return_type,
             voucher_hashes=voucher_hashes,
             company_scope_id=company_scope_id,
         )
-        if company_gstin else {}
+        if company_gstin and active_batch else {}
     )
-    summary = None
+    summary = active_batch.company_import_summary if active_batch else None
     file_type = file_type_label(extension)
-    if company_gstin:
+    if company_gstin and not active_batch:
         summary = get_or_create_company_import_summary(
             company_gstin=company_gstin,
             company_name=(metadata.get("company_source") or {}).get("company_name", ""),
@@ -218,9 +226,9 @@ def import_file(file_obj, return_type, return_period, user=None, selected_tally_
         )
     new_rows, duplicate_rows, already_imported_rows, retry_candidate_rows = _dedupe_rows(
         rows, company_gstin=company_gstin, return_type=return_type, user=user,
-        registry_by_hash=registry_by_hash, company_scope_id=company_scope_id,
+        registry_by_hash=registry_by_hash, company_scope_id=company_scope_id, active_batch=active_batch,
     )
-    batch = GSTImportBatch.objects.create(file_name=file_obj.name, file_type=file_type_label(extension),
+    batch = active_batch or GSTImportBatch.objects.create(file_name=file_obj.name, file_type=file_type_label(extension),
         gst_return_type=return_type, total_rows=len(rows), source_parties=metadata.get("parties", {}),
         company_import_summary=summary,
         product_license=product_license,
@@ -232,6 +240,12 @@ def import_file(file_obj, return_type, return_period, user=None, selected_tally_
         tax_period=period, file_hash=file_hash, file_size=file_size, source_fingerprint=fingerprint,
         uploaded_by=user if user and user.is_authenticated else None,
         expires_at=timezone.now() + timedelta(hours=24))
+    if active_batch and len(rows) > batch.total_rows:
+        batch.total_rows = len(rows)
+        batch.save(update_fields=["total_rows", "updated_at"])
+    if not active_batch and summary:
+        batch.company_import_summary = summary
+        batch.save(update_fields=["company_import_summary", "updated_at"])
     invoices = []
     failed_rows = 0
     for row in new_rows:
@@ -255,6 +269,9 @@ def import_file(file_obj, return_type, return_period, user=None, selected_tally_
                 upsert_voucher_registry(batch, invoice)
         except (TypeError, ValueError):
             failed_rows += 1
+    # This is the upload's actionable-row count, not the number of retained
+    # rows accumulated in the active session.  The permanent summary holds
+    # the aggregate session total.
     batch.imported_rows = len(invoices)
     batch.failed_rows = failed_rows
     batch.duplicate_rows = duplicate_rows

@@ -79,52 +79,32 @@ def row_voucher_identity(row, *, company_gstin, return_type, party_field, compan
 def get_or_create_company_import_summary(*, company_gstin, company_name="", return_type, source_file_name,
                                          source_format, total_source_count, voucher_hashes,
                                          company_scope_id=None):
-    scope_hash = source_identity_hash(voucher_hashes)
+    """Create the permanent audit record for one temporary processing session.
+
+    Historical summaries are intentionally never looked up by file/content
+    identity: they are reporting data, not a future-upload gate.
+    """
     company_scope_id = company_scope_id or company_scope_id_for(
         company_gstin=company_gstin,
         return_type=return_type,
         selected_tally_company=(company_name or ""),
     )
     now = timezone.now()
-    summary, created = GSTCompanyImportSummary.objects.select_for_update().get_or_create(
+    summary = GSTCompanyImportSummary.objects.create(
         company_gstin=normalize_gstin(company_gstin),
         company_scope_id=company_scope_id,
         return_type=canonical_return_type(return_type),
-        import_scope_hash=scope_hash,
-        defaults={
-            "company_name": company_name or "",
-            "transaction_type": transaction_type_for_return(return_type),
-            "source_file_name": source_file_name or "",
-            "source_format": source_format or "",
-            "total_source_count": total_source_count,
-            "pending_record_count": total_source_count,
-            "first_uploaded_at": now,
-            "last_uploaded_at": now,
-            "import_status": "PENDING",
-        },
+        import_scope_hash="",
+        company_name=company_name or "",
+        transaction_type=transaction_type_for_return(return_type),
+        source_file_name=source_file_name or "",
+        source_format=source_format or "",
+        total_source_count=total_source_count,
+        pending_record_count=total_source_count,
+        first_uploaded_at=now,
+        last_uploaded_at=now,
+        import_status="PENDING",
     )
-    update_fields = ["last_uploaded_at", "updated_at"]
-    summary.last_uploaded_at = now
-    if not created:
-        summary.last_retry_at = now
-        update_fields.append("last_retry_at")
-    if company_name and summary.company_name != company_name:
-        summary.company_name = company_name
-        update_fields.append("company_name")
-    if company_scope_id and summary.company_scope_id != company_scope_id:
-        summary.company_scope_id = company_scope_id
-        update_fields.append("company_scope_id")
-    if source_file_name:
-        summary.source_file_name = source_file_name
-        update_fields.append("source_file_name")
-    if source_format:
-        summary.source_format = source_format
-        update_fields.append("source_format")
-    if created or not summary.total_source_count:
-        summary.total_source_count = total_source_count
-        if "total_source_count" not in update_fields:
-            update_fields.append("total_source_count")
-    summary.save(update_fields=update_fields)
     return summary
 
 
@@ -218,6 +198,7 @@ def upsert_voucher_registry(batch, invoice, *, import_status=PENDING, tally_crea
     )
     identity = invoice_identity(invoice, company_scope_id=company_scope_id)
     registry, _ = GSTTallyVoucherRegistry.objects.select_for_update().update_or_create(
+        batch=batch,
         company_gstin=identity["company_gstin"],
         company_scope_id=company_scope_id,
         return_type=identity["return_type"],
@@ -239,6 +220,9 @@ def upsert_voucher_registry(batch, invoice, *, import_status=PENDING, tally_crea
             "last_error_message": last_error_message or "",
         },
     )
+    GSTInvoice.objects.filter(pk=invoice.pk).update(
+        processing_state="COMPLETED" if import_status == IMPORTED else "PENDING"
+    )
     # NOTE: update_company_import_summary is intentionally NOT called here.
     # It runs 4 COUNT queries + a select_for_update aggregate per invocation.
     # Calling it per-voucher caused N*4 DB round-trips for every batch.
@@ -248,8 +232,9 @@ def upsert_voucher_registry(batch, invoice, *, import_status=PENDING, tally_crea
     return registry
 
 
-def registry_rows_for_hashes(*, company_gstin, return_type, voucher_hashes, company_scope_id=None):
+def registry_rows_for_hashes(*, batch, company_gstin, return_type, voucher_hashes, company_scope_id=None):
     queryset = GSTTallyVoucherRegistry.objects.filter(
+        batch=batch,
         company_gstin=normalize_gstin(company_gstin),
         return_type=canonical_return_type(return_type),
         voucher_identity_hash__in=set(voucher_hashes),
@@ -301,6 +286,18 @@ def prepare_invoice_for_retry(registry):
     documented seam for retry-preparation policy (e.g. an attempt counter)
     instead of leaving that decision inlined/undocumented in the caller.
     """
+    invoice = registry.latest_invoice
+    if not invoice:
+        return None
+    # A validation-only row has no Tally mapping and can be replaced outright.
+    # A row with a Tally attempt remains only until session expiry, so its
+    # idempotency evidence is still available to the active-session import.
+    if not invoice.tally_vouchers.exists():
+        invoice.delete()
+    else:
+        GSTInvoice.objects.filter(pk=invoice.pk).update(processing_state="REPLACED")
+    registry.latest_invoice = None
+    registry.save(update_fields=["latest_invoice", "updated_at"])
     return None
 
 

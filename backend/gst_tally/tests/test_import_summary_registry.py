@@ -148,11 +148,17 @@ class ImportSummaryRegistryTests(TestCase):
         )
 
         self.assertEqual(retry.imported_rows, 1)
-        retried_invoice = retry.invoices.get(invoice_no="INV-1")
+        retried_invoice = retry.invoices.get(invoice_no="INV-1", processing_state="PENDING")
         self.assertNotEqual(retried_invoice.pk, inv1.pk)
-        # The failed attempt's history is never destroyed by a retry.
+        # The prior Tally-attempt mapping remains available for the active
+        # session's existing idempotency/query-back safety gate, while only
+        # the fresh invoice stays actionable.
         self.assertTrue(GSTInvoice.objects.filter(pk=inv1.pk).exists())
-        self.assertTrue(TallyVoucherMapping.objects.filter(idempotency_key="test-protect-key").exists())
+        self.assertEqual(GSTInvoice.objects.get(pk=inv1.pk).processing_state, "REPLACED")
+        self.assertEqual(retried_invoice.processing_state, "PENDING")
+        self.assertTrue(TallyVoucherMapping.objects.filter(
+            idempotency_key="test-protect-key", invoice_id=inv1.pk
+        ).exists())
 
     def test_already_imported_row_is_never_touched_or_resent_on_reupload(self):
         """Task spec's core business rule: a row whose voucher identity is
@@ -212,8 +218,7 @@ class ImportSummaryRegistryTests(TestCase):
         invoice = batch.invoices.get()
         registry = upsert_voucher_registry(batch, invoice, import_status=IMPORTED, tally_created=True, imported_at=timezone.now())
         summary = batch.company_import_summary
-        old_time = timezone.now() - timedelta(hours=25)
-        GSTImportBatch.objects.filter(pk=batch.pk).update(created_at=old_time, uploaded_at=old_time)
+        GSTImportBatch.objects.filter(pk=batch.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
 
         from django.core.management import call_command
 
@@ -222,11 +227,11 @@ class ImportSummaryRegistryTests(TestCase):
         self.assertFalse(GSTImportBatch.objects.filter(pk=batch.pk).exists())
         self.assertFalse(GSTInvoice.objects.filter(pk=invoice.pk).exists())
         self.assertTrue(type(summary).objects.filter(pk=summary.pk).exists())
-        self.assertTrue(type(registry).objects.filter(pk=registry.pk).exists())
+        self.assertFalse(type(registry).objects.filter(pk=registry.pk).exists())
 
         retry = import_file(
             csv_upload("old.csv", COMPANY_GSTIN, [("INV-1", "01-08-2026", "100", "118")]),
             "GSTR2A", "",
         )
-        self.assertEqual(retry.imported_rows, 0)
-        self.assertEqual(retry.duplicate_rows, 1)
+        self.assertEqual(retry.imported_rows, 1)
+        self.assertEqual(retry.duplicate_rows, 0)

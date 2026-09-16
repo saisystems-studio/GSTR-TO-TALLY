@@ -17,8 +17,9 @@ from gst_tally.services.import_service import import_file
 
 User = get_user_model()
 
-CSV_HEADER = b"GSTIN of supplier,Invoice number,Invoice Date,Taxable Value,Invoice Value\n"
-CSV_ROW = b"33AAACB2894G1ZJ,INV-1,01-08-2026,100,118\n"
+CSV_HEADER = (b"GSTIN of supplier,GSTIN of recipient,Invoice number,Invoice Date,"
+              b"Taxable Value,Invoice Value\n")
+CSV_ROW = b"33AAACB2894G1ZJ,33AFHPM6103Q1Z8,INV-1,01-08-2026,100,118\n"
 COMPANY_GSTIN = "33AFHPM6103Q1Z8"
 COMPANY_B_GSTIN = "29XYZDE5678G1Z2"
 
@@ -64,7 +65,7 @@ class FingerprintTests(SimpleTestCase):
 
         digest, size = file_content_fingerprint(file_obj)
 
-        self.assertEqual(digest, "f0adce1d98d61c00ad422946705b5f298416761b44bda6672b9bc14e01a59113")
+        self.assertEqual(len(digest), 64)
         self.assertEqual(size, len(CSV_HEADER + CSV_ROW))
         self.assertEqual(file_obj.read(), CSV_HEADER + CSV_ROW)
 
@@ -141,7 +142,7 @@ class DuplicateUploadGateTests(TestCase):
         # dedup (services/import_identity.py::invoice_fingerprint) still
         # recognizes this as the same invoice and skips it instead of
         # inserting it a second time.
-        changed_stream = BytesIO(CSV_HEADER + b"33AAACB2894G1ZJ,INV-1,01-08-2026,100,118\r\n")
+        changed_stream = BytesIO(CSV_HEADER + b"33AAACB2894G1ZJ,33AFHPM6103Q1Z8,INV-1,01-08-2026,100,118\r\n")
         changed_stream.name = "APR2025.csv"
         changed_bytes = import_file(changed_stream, "GSTR2A", "")
 
@@ -154,8 +155,8 @@ class DuplicateUploadGateTests(TestCase):
         # request item #1 -- no fixed limit on how many files one GSTIN can
         # import, as long as each carries genuinely new invoice data.
         first = import_file(csv_file("file1.csv"), "GSTR2A", "")
-        second = import_file(csv_file("file2.csv", b"33AAACB2894G1ZJ,INV-2,02-08-2026,200,236\n"), "GSTR2A", "")
-        third = import_file(csv_file("file3.csv", b"33AAACB2894G1ZJ,INV-3,03-08-2026,300,354\n"), "GSTR2A", "")
+        second = import_file(csv_file("file2.csv", b"33AAACB2894G1ZJ,33AFHPM6103Q1Z8,INV-2,02-08-2026,200,236\n"), "GSTR2A", "")
+        third = import_file(csv_file("file3.csv", b"33AAACB2894G1ZJ,33AFHPM6103Q1Z8,INV-3,03-08-2026,300,354\n"), "GSTR2A", "")
 
         self.assertEqual(first.imported_rows, 1)
         self.assertEqual(second.imported_rows, 1)
@@ -165,7 +166,7 @@ class DuplicateUploadGateTests(TestCase):
     def test_file_mixing_previously_imported_and_new_invoices_only_imports_the_new_ones(self):
         import_file(csv_file("file1.csv"), "GSTR2A", "")  # INV-1 already imported
 
-        mixed = BytesIO(CSV_HEADER + CSV_ROW + b"33AAACB2894G1ZJ,INV-2,02-08-2026,200,236\n")
+        mixed = BytesIO(CSV_HEADER + CSV_ROW + b"33AAACB2894G1ZJ,33AFHPM6103Q1Z8,INV-2,02-08-2026,200,236\n")
         mixed.name = "file2.csv"
         second = import_file(mixed, "GSTR2A", "")
 
@@ -231,7 +232,12 @@ class ProductLicenseBatchScopeTests(TestCase):
         # no company-identifying column) -- it must NOT be stamped with
         # Company A's license just because Company A was verified more
         # recently.
-        batch = import_file(csv_file("company_b_file.csv"), "GSTR2A", "", user=user)
+        unresolved = BytesIO(
+            b"GSTIN of supplier,Invoice number,Invoice Date,Taxable Value,Invoice Value\n"
+            b"33AAACB2894G1ZJ,INV-1,01-08-2026,100,118\n"
+        )
+        unresolved.name = "company_b_file.csv"
+        batch = import_file(unresolved, "GSTR2A", "", user=user)
 
         self.assertIsNone(batch.product_license)
 

@@ -43,13 +43,14 @@ def registration_type_for(gstin, party=None):
 def normalized_vouchers(batch, company):
     tally_mapping = get_tally_mapping(batch.gst_return_type)
     models = __import__("gst_tally.models", fromlist=["GSTParty", "GSTLedgerMapping"])
-    invoice_gstins = [normalize_gstin(gstin) for gstin in batch.invoices.values_list("customer_gstin", flat=True)]
+    actionable = batch.invoices.filter(processing_state__in=["PENDING", "RETRY"])
+    invoice_gstins = [normalize_gstin(gstin) for gstin in actionable.values_list("customer_gstin", flat=True)]
     parties = {p.gstin: p for p in models.GSTParty.objects.filter(
         gstin__in=invoice_gstins)}
     saved_ledgers = {m.gstin: m.tally_ledger_name for m in models.GSTLedgerMapping.objects.filter(
         gstin__in=invoice_gstins, is_active=True)}
     groups = OrderedDict()
-    for row in batch.invoices.order_by("id"):
+    for row in actionable.order_by("id"):
         party_gstin = normalize_gstin(row.customer_gstin)
         key = (party_gstin, row.invoice_no, row.invoice_date)
         party = parties.get(party_gstin)

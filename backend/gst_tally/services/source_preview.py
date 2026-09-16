@@ -164,7 +164,9 @@ def preview_batch(batch):
     return_type = batch.gst_return_type
     if return_type not in RETURN_TYPES:
         raise ValueError("Unsupported return type")
-    rows = [_invoice_row_dict(invoice) for invoice in batch.invoices.all().order_by("id")]
+    rows = [_invoice_row_dict(invoice) for invoice in batch.invoices.filter(
+        processing_state__in=["PENDING", "RETRY"]
+    ).order_by("id")]
     column_defs = PREVIEW_COLUMNS[return_type]
     columns = [{"key": key, "label": label, "format": fmt} for key, label, fmt in column_defs]
     extra_headers = _extra_source_columns(rows, return_type)

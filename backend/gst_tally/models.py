@@ -235,7 +235,10 @@ class GSTCompanyImportSummary(models.Model):
     transaction_type = models.CharField(max_length=20)
     source_file_name = models.CharField(max_length=255, blank=True)
     source_format = models.CharField(max_length=10, blank=True)
-    import_scope_hash = models.CharField(max_length=64)
+    # This legacy field is deliberately blank for new session summaries.  A
+    # source-content hash would be an invoice-level upload fingerprint and
+    # must never become a permanent re-upload gate.
+    import_scope_hash = models.CharField(max_length=64, blank=True, default="")
     total_source_count = models.PositiveIntegerField(default=0)
     successful_voucher_count = models.PositiveIntegerField(default=0)
     failed_record_count = models.PositiveIntegerField(default=0)
@@ -253,10 +256,6 @@ class GSTCompanyImportSummary(models.Model):
 
     class Meta:
         db_table = "gst_company_import_summary_tbl"
-        constraints = [
-            models.UniqueConstraint(fields=["company_scope_id", "company_gstin", "return_type", "import_scope_hash"],
-                                    name="uniq_gst_company_summary"),
-        ]
         indexes = [
             models.Index(fields=["company_gstin", "return_type"], name="gst_summary_company_return_idx"),
             models.Index(fields=["import_status"], name="gst_summary_status_idx"),
@@ -316,6 +315,10 @@ class GSTInvoice(models.Model):
     # batch (import_batch is on_delete=CASCADE), so deleting a batch always
     # frees its invoices' fingerprints for re-import.
     dedup_fingerprint = models.CharField(max_length=64, blank=True, db_index=True)
+    # Processing state is temporary because the invoice itself cascades with
+    # its 24-hour session.  It lets the preview and import steps select only
+    # rows that remain actionable after a correction upload.
+    processing_state = models.CharField(max_length=20, default="PENDING", db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     class Meta:
@@ -385,7 +388,7 @@ class GSTSyncLog(models.Model):
 
 class TallyVoucherMapping(models.Model):
     batch = models.ForeignKey(GSTImportBatch, related_name="tally_vouchers", on_delete=models.CASCADE)
-    invoice = models.ForeignKey(GSTInvoice, related_name="tally_vouchers", on_delete=models.PROTECT)
+    invoice = models.ForeignKey(GSTInvoice, related_name="tally_vouchers", on_delete=models.CASCADE)
     idempotency_key = models.CharField(max_length=64, unique=True)
     source_invoice_number = models.CharField(max_length=100)
     party_gstin = models.CharField(max_length=15, blank=True)
@@ -403,6 +406,9 @@ class TallyVoucherMapping(models.Model):
 
 
 class GSTTallyVoucherRegistry(models.Model):
+    # This is a 24-hour processing-session registry, never historical audit
+    # data.  Deleting the batch cascades it without affecting Tally.
+    batch = models.ForeignKey(GSTImportBatch, related_name="voucher_registry_entries", on_delete=models.CASCADE)
     company_gstin = models.CharField(max_length=15)
     company_scope_id = models.CharField(max_length=64, blank=True, db_index=True)
     company_name = models.CharField(max_length=255, blank=True)
@@ -432,7 +438,7 @@ class GSTTallyVoucherRegistry(models.Model):
     class Meta:
         db_table = "gst_tally_voucher_registry_tbl"
         constraints = [
-            models.UniqueConstraint(fields=["company_scope_id", "company_gstin", "return_type", "voucher_identity_hash"],
+            models.UniqueConstraint(fields=["batch", "company_scope_id", "company_gstin", "return_type", "voucher_identity_hash"],
                                     name="uniq_gst_voucher_registry"),
         ]
         indexes = [
