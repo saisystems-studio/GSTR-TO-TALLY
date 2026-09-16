@@ -54,7 +54,10 @@ class SandboxProviderTests(SimpleTestCase):
         headers = {key.lower(): value for key, value in request.header_items()}
         self.assertEqual(headers["x-api-key"], "api-key-value")
         self.assertEqual(headers["x-api-secret"], "api-secret-value")
-        self.assertEqual(headers["x-api-version"], "1.0.0")
+        self.assertEqual(set(headers), {"x-api-key", "x-api-secret"})
+        self.assertIsNone(request.data)
+        self.assertTrue(provider.last_request_metadata["api_key_preserved"])
+        self.assertTrue(provider.last_request_metadata["secret_preserved"])
 
     def test_otp_request_uses_company_identity_not_party_gstin(self):
         cache.set(SandboxGSTProvider(config()).cache_key("access-token"), encrypt("access-token-value"), 300)

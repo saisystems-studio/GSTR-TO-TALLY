@@ -153,6 +153,21 @@ class SandboxCredentialLifecycleTests(TestCase):
         self.assertEqual(self.calls[-1][1]["x-api-key"], "key-A")
         self.assertEqual(self.calls[-1][1]["x-api-secret"], "secret-A")
 
+    def test_saved_configuration_reload_authenticates_from_database_without_exposing_values(self):
+        self.save()
+        self.calls.clear()
+        response = self.request("post", {})
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["configuration_source"], "database")
+        self.assertTrue(response.data["credentials_present"])
+        self.assertTrue(response.data["authentication_attempted"])
+        self.assertFalse(response.data["taxpayer_lookup_attempted"])
+        self.assertIn("upstream_http_status", response.data)
+        self.assertEqual(self.calls[-1][1]["x-api-key"], "key-A")
+        self.assertEqual(self.calls[-1][1]["x-api-secret"], "secret-A")
+        self.assertNotIn("key-A", json.dumps(response.data, default=str))
+        self.assertNotIn("secret-A", json.dumps(response.data, default=str))
+
     def test_invalid_credentials_error_is_categorized_not_generic(self):
         self.save()
         self.invalid = True

@@ -887,6 +887,16 @@ _SANDBOX_ERROR_CONNECTION_STATUS = {
 _MASK_PLACEHOLDER = "••••••••"
 
 
+def _is_mask_placeholder(value):
+    text = str(value or "").strip()
+    if not text:
+        return True
+    if len(text) >= 4 and len(set(text)) == 1 and text[0] in {"•", "*", "·", "●"}:
+        return True
+    # Handles the mojibake bullet mask emitted by older frontend bundles.
+    return text.startswith("â") and "€¢" in text and len(text) >= 8
+
+
 class SandboxConfigurationView(APIView):
     permission_classes = [IsSuperAdmin]
 
@@ -903,13 +913,17 @@ class SandboxConfigurationView(APIView):
         if request.data.get("provider", "sandbox") != "sandbox" or environment not in {"test", "production"}:
             return None, Response({"detail": "Select Sandbox and a valid environment.", "category": "INVALID_PROVIDER_CONFIGURATION"}, status=400)
 
+        raw_credential_values = [str(request.data.get(field) or "") for field in ("api_key", "api_secret")]
+        masked_placeholders_detected = any(raw.strip() and _is_mask_placeholder(raw) for raw in raw_credential_values)
+        whitespace_detected = any(raw != raw.strip() for raw in raw_credential_values)
+
         def submitted(field):
             # A masked placeholder (or a run of the same mask character) is
             # never a real credential -- treat it exactly like "not edited"
             # and fall back to the saved, decrypted value, the same as an
             # empty field already does.
             raw = str(request.data.get(field) or "")
-            return "" if not raw.strip() or raw.strip(_MASK_PLACEHOLDER) == "" else raw.strip()
+            return "" if _is_mask_placeholder(raw) else raw.strip()
 
         values = {"api_key": submitted("api_key") or saved.get("api_key", ""),
                   "api_secret": submitted("api_secret") or saved.get("api_secret", ""),
@@ -917,17 +931,41 @@ class SandboxConfigurationView(APIView):
         if any(not values[key] or len(values[key]) > 4096 or any(c in values[key] for c in "\r\n") for key in ("api_key", "api_secret")) or not values["api_version"] or len(values["api_version"]) > 30:
             return None, Response({"detail": "Enter a valid API Key, Secret Key and API version.", "category": "INVALID_PROVIDER_CONFIGURATION"}, status=400)
         provider = SandboxGSTProvider(SandboxGSTProvider.config_for_credentials(values))
+        self._test_diagnostics = {}
+        def credential_diagnostics(metadata):
+            return {
+                "frontend_api_key_length": len(raw_credential_values[0].strip()),
+                "backend_received_api_key_length": len(values.get("api_key", "")),
+                "outgoing_api_key_length": metadata.get("outgoing_api_key_length"),
+                "frontend_secret_length": len(raw_credential_values[1].strip()),
+                "backend_received_secret_length": len(values.get("api_secret", "")),
+                "outgoing_secret_length": metadata.get("outgoing_api_secret_length"),
+                "api_key_prefix_recognized": bool(metadata.get("api_key_prefix_recognized")),
+                "secret_prefix_recognized": bool(metadata.get("secret_prefix_recognized")),
+                "api_key_preserved": bool(metadata.get("api_key_preserved")),
+                "secret_preserved": bool(metadata.get("secret_preserved")),
+            }
         try:
             provider.authenticate(force=True, bypass_block=True)
         except SandboxAuthenticationFailure as exc:
             category = _SANDBOX_ERROR_CATEGORY.get(exc.code, "PROVIDER_UNAVAILABLE")
             upstream_status = (exc.diagnostics or {}).get("authenticate_http_status")
+            configuration_source = "database" if not any(submitted(field) for field in ("api_key", "api_secret")) else "request"
+            request_metadata = getattr(provider, "last_request_metadata", {})
+            authentication_request = {key: request_metadata.get(key) for key in ("url", "method", "header_names", "body_keys")}
             # Safe diagnostics only -- provider/environment/endpoint/method/status/message,
             # never the API key, secret, or any access token.
             logger.warning("Sandbox Test Connection failed: provider=sandbox environment=%s auth_endpoint=%s "
                             "http_method=POST upstream_http_status=%s category=%s provider_code=%s provider_message=%s",
                             environment, SandboxGSTProvider.AUTH_PATH, upstream_status, category, exc.code, exc.safe_message)
             return None, Response({"authenticated": False,
+                "configuration_source": configuration_source, "environment": environment,
+                "credentials_present": bool(values.get("api_key") and values.get("api_secret")),
+                "authentication_attempted": True, "taxpayer_lookup_attempted": False,
+                "masked_placeholders_detected": masked_placeholders_detected,
+                "whitespace_detected": whitespace_detected,
+                "authentication_request": authentication_request,
+                **credential_diagnostics(request_metadata),
                 "credentials_status": "invalid" if category in _CREDENTIAL_REJECTING else "unverified",
                 "connection_status": _SANDBOX_ERROR_CONNECTION_STATUS.get(category, "unavailable"),
                 "code": exc.code, "category": category, "upstream_http_status": upstream_status,
@@ -939,6 +977,17 @@ class SandboxConfigurationView(APIView):
         finally:
             # Testing candidate credentials never installs their token into runtime.
             provider.clear_session_cache()
+        request_metadata = getattr(provider, "last_request_metadata", {})
+        self._test_diagnostics = {
+            "configuration_source": "database" if not any(submitted(field) for field in ("api_key", "api_secret")) else "request",
+            "environment": environment, "credentials_present": True,
+            "authentication_attempted": True, "upstream_http_status": provider.last_http_status,
+            "taxpayer_lookup_attempted": False,
+            "masked_placeholders_detected": masked_placeholders_detected,
+            "whitespace_detected": whitespace_detected,
+            "authentication_request": {key: request_metadata.get(key) for key in ("url", "method", "header_names", "body_keys")},
+            **credential_diagnostics(request_metadata),
+        }
         return values, None
 
     def post(self, request):
@@ -946,6 +995,7 @@ class SandboxConfigurationView(APIView):
         if error is not None:
             return error
         return Response({"authenticated": True, "credentials_status": "valid", "connection_status": "connected",
+                         **self._test_diagnostics,
                          "lookup_ready": True, "message": "Connection successful. Credentials valid."})
 
     def put(self, request):

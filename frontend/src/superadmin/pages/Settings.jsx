@@ -2,6 +2,16 @@ import { useEffect, useState } from 'react'
 import { activateSandboxConfiguration, getSandboxConfiguration, getSettings, testSandboxConfiguration, updateSettings } from '../services/superadminApi.js'
 import { ErrorCard, LoadingCard, PageHeader } from './pageUtils.jsx'
 
+const isMaskedCredential = value => {
+  const text = String(value || '').trim()
+  return !text || (/^(.)\1{3,}$/.test(text) && ['•', '*', '·', '●'].includes(text[0])) || (text.startsWith('â') && text.includes('€¢'))
+}
+
+const credentialPayload = config => ({ ...config,
+  api_key: isMaskedCredential(config.api_key) ? '' : config.api_key,
+  api_secret: isMaskedCredential(config.api_secret) ? '' : config.api_secret,
+})
+
 export default function Settings() {
   const [settings, setSettings] = useState(null)
   const [sandbox, setSandbox] = useState({ provider: 'sandbox', environment: 'test', api_version: '1.0.0', api_key: '', api_secret: '' })
@@ -27,13 +37,13 @@ export default function Settings() {
 
   const testSandbox = async () => {
     setSandboxState({ testing: true, saving: false, tested: false, error: '', success: '' })
-    try { await testSandboxConfiguration(sandbox); setSandboxState({ testing: false, saving: false, tested: true, error: '', success: 'Connection successful. Credentials are valid and ready to activate.' }) }
+    try { await testSandboxConfiguration(credentialPayload(sandbox)); setSandboxState({ testing: false, saving: false, tested: true, error: '', success: 'Connection successful. Credentials are valid and ready to activate.' }) }
     catch (error) { setSandboxState({ testing: false, saving: false, tested: false, error: error.message, success: '' }) }
   }
 
   const activateSandbox = async () => {
     setSandboxState({ testing: false, saving: true, tested: true, error: '', success: '' })
-    try { const updated = await activateSandboxConfiguration(sandbox); setSandbox(s => ({ ...s, ...updated, api_key: '', api_secret: '' })); setSandboxState({ testing: false, saving: false, tested: false, error: '', success: 'Sandbox configuration saved and activated.' }) }
+    try { const updated = await activateSandboxConfiguration(credentialPayload(sandbox)); setSandbox(s => ({ ...s, ...updated, api_key: '', api_secret: '' })); setSandboxState({ testing: false, saving: false, tested: false, error: '', success: 'Sandbox configuration saved and activated.' }) }
     catch (error) { setSandboxState({ testing: false, saving: false, tested: false, error: error.message, success: '' }) }
   }
 

@@ -268,11 +268,25 @@ class SandboxGSTProvider(GSTLookupProvider):
             "endpoint": path,
             "url": self._url(path),
             "method": "POST",
+            "header_names": sorted(str(key) for key in headers.keys()),
             "body_keys": sorted(str(key) for key in body.keys()) if isinstance(body, dict) else [],
             "auth_token_attached": bool(headers.get("authorization")),
             "api_key_attached": bool(headers.get("x-api-key")),
             "taxpayer_session_attached": bool(headers.get("authorization")) and not headers.get("x-api-key"),
         }
+        if path == self.AUTH_PATH:
+            key = str(headers.get("x-api-key") or "")
+            secret = str(headers.get("x-api-secret") or "")
+            self.last_request_metadata.update({
+                "outgoing_api_key_length": len(key), "outgoing_api_secret_length": len(secret),
+                "api_key_prefix_recognized": key.startswith(("key_live_", "key_test_")),
+                "secret_prefix_recognized": secret.startswith(("secret_live_", "secret_test_")),
+                # Compare SHA-256 digests internally only. Neither digest is
+                # returned or logged; these flags prove whether the provider
+                # changed a value before constructing the HTTP request.
+                "api_key_preserved": hashlib.sha256(key.encode()).digest() == hashlib.sha256(str(self.config.get("api_key") or "").encode()).digest(),
+                "secret_preserved": hashlib.sha256(secret.encode()).digest() == hashlib.sha256(str(self.config.get("api_secret") or "").encode()).digest(),
+            })
         try:
             with self.opener(request, timeout=self.config["timeout"]) as response:
                 self.last_http_status = getattr(response, "status", 200)
@@ -378,8 +392,10 @@ class SandboxGSTProvider(GSTLookupProvider):
                 raise SandboxAuthenticationFailure(blocked.get("code", "SANDBOX_FORBIDDEN"),
                     blocked.get("message") or "Sandbox rejected the request.", diagnostics)
         try:
-            payload = self._post(self.AUTH_PATH, {"accept": "application/json", "x-api-key": self.config["api_key"],
-                "x-api-secret": self.config["api_secret"], "x-api-version": self.config["api_version"]})
+            # Sandbox authentication accepts only the two credential headers.
+            # Version and content negotiation headers belong to later API calls.
+            payload = self._post(self.AUTH_PATH, {"x-api-key": self.config["api_key"],
+                "x-api-secret": self.config["api_secret"]})
         except GSTLookupAuthenticationError as exc:
             status_code = getattr(exc, "http_status", 401)
             diagnostics["authenticate_http_status"] = status_code
