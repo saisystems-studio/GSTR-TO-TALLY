@@ -544,6 +544,9 @@ class LocalTallyAgent(models.Model):
     digest; the plaintext is shown only at provisioning time."""
     device = models.OneToOneField(LicensedDevice, related_name="local_tally_agent", on_delete=models.CASCADE)
     token_hash = models.CharField(max_length=64, unique=True)
+    installation_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    identity = models.JSONField(default=dict)
+    browser_device = models.CharField(max_length=128, blank=True)
     detected_serial = models.CharField(max_length=64, blank=True)
     detected_company_gstin = models.CharField(max_length=15, blank=True)
     detected_company_name = models.CharField(max_length=255, blank=True)
@@ -570,6 +573,23 @@ class LocalTallyJob(models.Model):
     acknowledgement = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
     error_message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
     class Meta:
         db_table = "local_tally_job_tbl"
         indexes = [models.Index(fields=["agent", "status", "created_at"], name="agent_job_claim_idx")]
+
+
+class ConnectorEnrollment(models.Model):
+    enrollment_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    installation_id = models.UUIDField()
+    poll_hash = models.CharField(max_length=64)
+    proof_hash = models.CharField(max_length=64)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE)
+    browser_device = models.CharField(max_length=128, blank=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True)
+    agent = models.ForeignKey(LocalTallyAgent, null=True, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "connector_enrollment_tbl"

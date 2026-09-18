@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import LoadingButton from '../common/LoadingButton'
 import { step3Ready, step3Rows } from '../../utils/step3Verification'
+import DirectTallyTest from './DirectTallyTest'
 
 export default function Step3Verification({ companyInfo, companyResult, licenseResult, confirmLoading, confirmDone, onSelectGstin, onConfirmMasters, onRetryLicense }) {
   const [visible, setVisible] = useState(true)
   useEffect(() => setVisible(true), [licenseResult, companyResult])
   const needsPick = companyInfo?.error === 'MULTIPLE_COMPANY_GSTINS' && !companyResult
-  if (!licenseResult && !needsPick) return null
+  if (!licenseResult && !needsPick) return <DirectTallyTest />
   const complete = step3Ready(licenseResult) && companyResult?.company_details_saved === true && companyResult?.company_verified === true
   const rows = licenseResult ? step3Rows(licenseResult) : []
   const errors = [...(licenseResult?.errors || [])]
@@ -17,6 +18,7 @@ export default function Step3Verification({ companyInfo, companyResult, licenseR
   const title = needsPick ? 'Select Company GSTIN' : !companyResult ? 'Verifying company details...' : complete ? 'Verification Complete' : 'Verification Failed'
   const showConnectionHelp = errors.some(error => ['TALLY_NOT_CONNECTED', 'TALLY_LICENSE_DATA_UNAVAILABLE'].includes(error.code))
   return <>
+    <DirectTallyTest />
     {visible && createPortal(<div className="step3-verification-overlay">
       <section className="step3-verification" role="dialog" aria-modal="true" aria-label={title}>
         <header className="step3-header">

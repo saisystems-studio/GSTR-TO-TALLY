@@ -5,6 +5,7 @@ import SubscriptionExpired from './pages/SubscriptionExpired.jsx'
 import SuperAdminApp from './superadmin/SuperAdminApp.jsx'
 import { clearSession, signOut, validateSession } from './services/authApi.js'
 import { getMySubscription } from './services/subscriptionApi.js'
+import { pairConnectorEnrollment } from './services/gstTallyApi.js'
 
 export default function App() {
   return window.location.pathname.startsWith('/superadmin') ? <SuperAdminApp /> : <CustomerApp />
@@ -76,6 +77,15 @@ function CustomerApp() {
     let cancelled = false
     getMySubscription().then(result => { if (!cancelled) setSubscription(result) }).catch(() => {})
     return () => { cancelled = true }
+  }, [authState.status])
+
+  useEffect(() => {
+    if (authState.status !== 'authenticated') return
+    const value = String(window.location.hash || '').match(/^#connector=([^\.]+)\.(.+)$/)
+    if (!value) return
+    pairConnectorEnrollment({ enrollmentId: value[1], proof: value[2] })
+      .then(() => { window.history.replaceState({}, '', window.location.pathname + window.location.search) })
+      .catch(() => {})
   }, [authState.status])
 
   // Mirrors the existing 'gst-session-expired' listener above -- any

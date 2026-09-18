@@ -913,19 +913,9 @@ class TallyConnectionView(APIView):
         # connection screen must therefore reflect the customer's outbound
         # agent heartbeat, never attempt a misleading VPS localhost probe.
         if getattr(settings, "TALLY_LOCAL_AGENT_REQUIRED", False):
-            fingerprint = request.headers.get("X-Device-ID", "")
-            agent = (LocalTallyAgent.objects.filter(
-                device__license__customer=request.user, device__status=LicensedDevice.ACTIVE,
-                device__device_fingerprint=fingerprint,
-            ).order_by("-last_seen_at").first())
-            online = bool(agent and agent.last_seen_at and (timezone.now() - agent.last_seen_at).total_seconds() <= 90)
-            ready = bool(online and agent.tally_reachable)
-            label = "Ready to Import" if ready else "Agent Offline" if not online else "Wrong Company Open"
-            return Response({"agent_status": label, "can_import": ready, "company_open": ready,
-                             "read_connected": ready, "http_connected": ready, "tally_connected": ready,
-                             "company_name": agent.detected_company_name if agent else "",
-                             "company_gstin": agent.detected_company_gstin if agent else "",
-                             "message": label})
+            from .connector import find_agent, snapshot
+            agent = find_agent(request.user, request.headers.get("X-Device-ID", ""))
+            return Response(snapshot(agent))
         return Response(step3_connection_check())
 
 class TallyLicenseView(APIView):
@@ -1013,11 +1003,11 @@ class TallyImportView(APIView):
             )
         request_id = request.headers.get("X-Request-ID", "") or str(request.data.get("request_id", ""))
         fingerprint = request.headers.get("X-Device-Fingerprint", "") or request.headers.get("X-Device-ID", "")
-        agent = (LocalTallyAgent.objects.select_related("device__license").filter(
-            device__license=batch.product_license, device__status=LicensedDevice.ACTIVE,
-            tally_reachable=True, detected_company_gstin=batch.company_gstin,
-            device__device_fingerprint=fingerprint or "__no_matching_device__",
-        ).first())
+        from .connector import find_agent
+        agent = find_agent(request.user, fingerprint)
+        if agent and (agent.device.license_id != batch.product_license_id or
+                      not agent.tally_reachable or agent.detected_company_gstin != batch.company_gstin):
+            agent = None
         if getattr(settings, "TALLY_LOCAL_AGENT_REQUIRED", False) and not agent:
             return Response({"code": "TALLY_AGENT_OFFLINE", "message": "Local Tally Agent is offline or the registered company is not open."}, status=409)
         job, outcome = start_import_job(batch, request_id=request_id, local_agent=agent)

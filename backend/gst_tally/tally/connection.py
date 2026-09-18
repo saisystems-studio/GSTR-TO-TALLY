@@ -178,6 +178,9 @@ def _log_tally_connection_check(result):
 
 
 def step3_connection_check(client=None, odbc_connect=None):
+    if getattr(settings, 'TALLY_LOCAL_AGENT_REQUIRED', False):
+        from gst_tally.connector_context import connection_snapshot
+        return connection_snapshot()
     result = _step3_connection_check(client=client, odbc_connect=odbc_connect)
     _log_tally_connection_check(result)
     return result

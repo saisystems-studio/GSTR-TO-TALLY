@@ -547,13 +547,21 @@ def pre_import_security_check(batch, user, device_fingerprint="", device_name=""
 
     # Serialize capacity checks and first registration across this account.
     subscription = Subscription.objects.select_for_update().filter(user=user).first()
-    connection = step3_connection_check(client=client)
+    if getattr(settings, 'TALLY_LOCAL_AGENT_REQUIRED', False):
+        from gst_tally.connector import find_agent, snapshot
+        connection = snapshot(find_agent(user, device_fingerprint))
+    else:
+        connection = step3_connection_check(client=client)
     connected = bool(connection.get("read_connected") and connection.get("can_import"))
     source_gstin = normalize_gstin(batch.company_gstin)
     current_gstin = normalize_gstin(connection.get("company_gstin"))
     company_name = connection.get("company_name", "")
     company_match = bool(connected and source_gstin and source_gstin == current_gstin)
-    reading = read_tally_license(client=client) if connection.get("read_connected") else {}
+    if getattr(settings, 'TALLY_LOCAL_AGENT_REQUIRED', False):
+        reading = {'serial_number': connection.get('serial_number', ''),
+                   'license_available': bool(connection.get('serial_number'))}
+    else:
+        reading = read_tally_license(client=client) if connection.get("read_connected") else {}
     detected = normalize_tally_serial(reading.get("serial_number"))
     licenses = ProductLicense.objects.select_for_update().filter(customer=user).exclude(status=ProductLicense.REVOKED)
     serials = {normalize_tally_serial(value) for value in licenses.values_list("licensed_tally_serial", flat=True)} - {""}

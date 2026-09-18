@@ -1,4 +1,5 @@
 from django.urls import path
+from . import connector
 from superadmin.views import CustomerSupportContactView
 from .views import (BatchCompanyView, BatchDetailView, BatchListView, BatchPartiesView, BatchPartyDetailView, BatchPreviewView, ChangePasswordView, CompanyVerifyView,
                     ImportView, MyProfileView, SourcePreviewView, BatchPreviewPdfView, TallyConnectionView, TallyDiagnosticsView, TallyImportActiveJobView,
@@ -32,11 +33,13 @@ urlpatterns = [
     path("license/activate/", ProductLicenseActivateView.as_view()),
     path("license/verify/", ProductLicenseVerifyView.as_view()),
     path("license/heartbeat/", ProductLicenseHeartbeatView.as_view()),
-    path("local-agent/provision/", LocalTallyAgentProvisionView.as_view()),
-    path("local-agent/status/", LocalTallyAgentStatusView.as_view()),
-    path("local-agent/heartbeat/", LocalTallyAgentHeartbeatView.as_view()),
-    path("local-agent/next-job/", LocalTallyAgentNextJobView.as_view()),
-    path("local-agent/jobs/<uuid:job_id>/result/", LocalTallyAgentJobResultView.as_view()),
+    path("local-agent/enroll/", connector.EnrollView.as_view()),
+    path("local-agent/pair/", connector.PairView.as_view()),
+    path("local-agent/enroll/claim/", connector.ClaimEnrollmentView.as_view()),
+    path("local-agent/status/", connector.StatusView.as_view()),
+    path("local-agent/heartbeat/", connector.HeartbeatView.as_view()),
+    path("local-agent/next-job/", connector.NextJobView.as_view()),
+    path("local-agent/jobs/<uuid:job_id>/result/", connector.ResultView.as_view()),
     path("me/profile/", MyProfileView.as_view()),
     path("me/change-password/", ChangePasswordView.as_view()),
     path("support-contact/", CustomerSupportContactView.as_view()),

@@ -22,6 +22,7 @@ import {
   downloadBatchPreviewPdf,
   getImportBatch,
   getTallyConnection,
+  getConnectorStatus,
   getTallyImportJobStatus,
   pauseTallyImportJob,
   prepareTallyMasters,
@@ -118,6 +119,7 @@ function forgetLastBatch() {
 }
 
 export default function GstTallyImport({ user, onLogout, subscription }) {
+  const [connectorStatus, setConnectorStatus] = useState(null)
   // A reload lands back on this same component with a fresh, empty state --
   // reading the batch id straight out of the URL here (rather than only
   // from location.state) is what lets Step 2 restore correctly on refresh
@@ -181,6 +183,19 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   // ago), and reset on every new attempt so a Retry can show it again.
   const [resultPopupOpen, setResultPopupOpen] = useState(false)
   const [errorDetail, setErrorDetail] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const refresh = () => getConnectorStatus().then(status => {
+      if (!cancelled) {
+        setConnectorStatus(status)
+        if (status?.tally_connected) setConnectionResult(previous => ({ ...(previous || {}), ...status }))
+      }
+    }).catch(() => {})
+    refresh()
+    const timer = window.setInterval(refresh, 5000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [])
   const [busy, setBusy] = useState('')
   const [phase, setPhase] = useState('')
   const [processingStartedAt, setProcessingStartedAt] = useState(0)
@@ -832,6 +847,7 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   const stepSubtitle = !showProfile && activeStep === 'import' ? 'Send validated vouchers to the verified Tally company' : ''
 
   return <AppShell user={user} activeStep={activeStep} stepNumber={showProfile ? null : stepNumber} stepLabel={showProfile ? 'My Profile' : stepLabel} stepSubtitle={stepSubtitle} batchId={batch?.id} reachableIndex={reachableIndex} onHome={onLogout} onNavigate={go} onLogout={onLogout} onProfile={() => setShowProfile(true)} profileActive={showProfile} canGoBack={showProfile || screen !== 'upload'} onBack={showProfile ? () => setShowProfile(false) : back} subscription={subscription}>
+    <ConnectorStatusBanner status={connectorStatus} />
     {showProfile && <ProfileScreen />}
     {!showProfile && screen === 'upload' && <UploadScreen returnType={returnType} fileFormat={fileFormat} file={file} fileError={fileError} loading={busy === 'import-file'} phase={phase} processingStartedAt={processingStartedAt} processingBackendDone={processingBackendDone} overlayClosing={overlayClosing} processingError={processingError} onDismissProcessingError={() => setProcessingError('')} onReturnType={chooseReturnType} onFile={chooseFile} onImport={startImport} fileInputRef={fileInputRef} />}
     {!showProfile && screen === 'preview' && <PreviewScreen preview={preview} batch={batch} tableLoading={previewLoading} tableProcessingStartedAt={previewProcessingStartedAt} tableError={previewError} onRetryPreview={() => batch?.id && loadBatchPreview(batch.id)} onLoadPage={options => batch?.id && loadBatchPreview(batch.id, options)} loading={busy === 'parties'} phase={phase} onProceed={proceedFromPreview} />}
@@ -874,6 +890,19 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
     />
     {errorDetail && <ErrorDetailModal row={errorDetail} onClose={() => setErrorDetail(null)} onRetry={runImport} />}
   </AppShell>
+}
+
+function ConnectorStatusBanner({ status }) {
+  const label = status?.status || 'Connector Not Installed'
+  const ready = label === 'Ready to Import'
+  return <div className={`connector-status-banner ${ready ? 'is-ready' : ''}`} role="status">
+    <span>Connector: {status?.connected ? 'Connected' : 'Not Installed'}</span>
+    <span>Tally: {status?.tally_connected ? 'Connected' : label === 'Connecting...' ? 'Connecting...' : 'Not Running'}</span>
+    {status?.company_name && <span>Company: {status.company_name}</span>}
+    {status?.company_gstin && <span>GSTIN: {status.company_gstin}</span>}
+    <strong>Status: {ready ? 'Ready' : label}</strong>
+    {!status?.connected && status?.download_url && <a href={status.download_url}>Install connector</a>}
+  </div>
 }
 
 function UploadScreen({ returnType, fileFormat, file, fileError, loading, phase, processingStartedAt, processingBackendDone, overlayClosing, processingError, onDismissProcessingError, onReturnType, onFile, onImport, fileInputRef }) {

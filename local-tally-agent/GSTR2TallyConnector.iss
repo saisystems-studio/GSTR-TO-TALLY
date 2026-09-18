@@ -1,0 +1,27 @@
+#define MyAppName "GSTR2Tally Connector"
+#define MyAppVersion "1.0.0"
+#define MyAppPublisher "GSTR2Tally"
+#define MyAppExeName "GSTR2TallyConnector.exe"
+
+[Setup]
+AppId={{A34F75D7-9B47-4C85-A293-2DD3B9F47D6F}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+DefaultDirName={localappdata}\GSTR2Tally Connector
+DisableProgramGroupPage=yes
+PrivilegesRequired=lowest
+OutputBaseFilename=GSTR2TallyConnectorSetup
+Compression=lzma
+SolidCompression=yes
+UninstallDisplayIcon={app}\{#MyAppExeName}
+
+[Files]
+Source: "dist\GSTR2TallyConnector\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "release.json"; DestDir: "{app}"; Flags: ignoreversion
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "GSTR2TallyConnector"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
+
+[Icons]
+Name: "{userprograms}\GSTR2Tally Connector"; Filename: "{app}\{#MyAppExeName}"

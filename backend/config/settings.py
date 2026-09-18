@@ -37,6 +37,7 @@ MIDDLEWARE = [
     # other existing route (auth, admin, this app's own endpoints) is
     # completely untouched by it.
     "subscriptions.middleware.SubscriptionEnforcementMiddleware",
+    "gst_tally.connector_context.ConnectorContextMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True,
@@ -130,7 +131,9 @@ TALLY_ODBC_TIMEOUT = int(env("TALLY_ODBC_TIMEOUT", "10"))
 TALLY_MOCK = env_bool("TALLY_MOCK", False)
 TALLY_SINGLE_VOUCHER_GATE = env_bool("TALLY_SINGLE_VOUCHER_GATE", True)
 TALLY_LOCAL_AGENT_REQUIRED = env_bool("TALLY_LOCAL_AGENT_REQUIRED", False)
+CONNECTOR_DOWNLOAD_URL = env("CONNECTOR_DOWNLOAD_URL", "/gstr2tally/downloads/GSTR2TallyConnectorSetup.exe")
 TALLY_AGENT_RESULT_TIMEOUT = int(env("TALLY_AGENT_RESULT_TIMEOUT", "90"))
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 GST_LOOKUP_ENABLED = env("GST_LOOKUP_ENABLED", "false").lower() == "true"
 GST_LOOKUP_PROVIDER = env("GST_LOOKUP_PROVIDER")
 GST_LOOKUP_PRIMARY_PROVIDER = env("GST_LOOKUP_PRIMARY_PROVIDER", GST_LOOKUP_PROVIDER)

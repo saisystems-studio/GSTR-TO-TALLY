@@ -95,6 +95,12 @@ def classify_odbc_error(exc):
 
 
 def odbc_company_status(connect=None, requested_company="", read_client=None, expected_gstin=""):
+    if getattr(settings, 'TALLY_LOCAL_AGENT_REQUIRED', False):
+        from gst_tally.connector_context import connection_snapshot
+        if read_client is not None and getattr(read_client, 'agent', None):
+            from gst_tally.connector import snapshot
+            return snapshot(read_client.agent)
+        return connection_snapshot()
     """Trace every read channel independently (TCP reachability, HTTP JSON, ODBC)
     and merge whatever each one found, instead of one channel's exception wiping
     out data another channel already read. See CONNECTION_FAILURE_CODES for the
@@ -389,6 +395,8 @@ def verify_tally_company(source_gstin, status, source_company=None):
 verify_source_company = verify_tally_company
 
 def odbc_existing_masters(connect=None, include_details=False):
+    if getattr(settings, 'TALLY_LOCAL_AGENT_REQUIRED', False):
+        raise RuntimeError('Use connector HTTP master lookup.')
     """Return master names/GSTIN mappings through read-only ODBC.
 
     ``names`` maps ``casefold(name) -> raw Tally name`` so a reuse decision can
@@ -465,6 +473,9 @@ def odbc_sales_prerequisites(ledger_names, connect=None):
 
 
 def odbc_company_period(connect=None, requested_company=""):
+    if getattr(settings, 'TALLY_LOCAL_AGENT_REQUIRED', False):
+        from gst_tally.connector_context import connection_snapshot
+        return connection_snapshot()
     """Read the selected company's financial-year/books range without writes."""
     if connect is None:
         import pyodbc

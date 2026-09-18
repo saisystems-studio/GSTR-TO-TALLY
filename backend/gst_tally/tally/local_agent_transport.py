@@ -2,6 +2,7 @@
 import hashlib
 import json
 import time
+from datetime import timedelta
 
 from django.conf import settings
 from django.utils import timezone
@@ -10,6 +11,7 @@ from .client import TallyConnectionError
 from .json_response_parser import parse_json_response
 from .response_parser import parse_response
 from gst_tally.models import LocalTallyJob
+from .connector_protocol import operation
 
 
 class LocalAgentTallyClient:
@@ -29,12 +31,17 @@ class LocalAgentTallyClient:
 
     def _relay(self, body, headers):
         key = hashlib.sha256((str(self.batch.pk) + "\n" + body).encode()).hexdigest()
+        operation_name = operation(body, headers)
         job, _ = LocalTallyJob.objects.get_or_create(
             idempotency_key=key,
-            defaults={"agent": self.agent, "batch": self.batch, "payload": {"body": body, "headers": headers}},
+            defaults={"agent": self.agent, "batch": self.batch, "payload": {"operation": operation_name, "body": body, "headers": headers},
+                      "expires_at": timezone.now() + timedelta(minutes=15)},
         )
         if job.agent_id != self.agent.id:
             raise TallyConnectionError("TALLY_AGENT_SCOPE_MISMATCH", "The Tally request belongs to another device.")
+        if not job.payload.get("operation"):
+            job.payload = {**job.payload, "operation": operation_name}
+            job.save(update_fields=["payload"])
         deadline = time.monotonic() + float(getattr(settings, "TALLY_AGENT_RESULT_TIMEOUT", 90))
         while time.monotonic() < deadline:
             job.refresh_from_db()

@@ -24,6 +24,8 @@ def endpoint(base_url=None):
 
 
 def tcp_probe(host, port, timeout=None):
+    if getattr(settings, 'TALLY_LOCAL_AGENT_REQUIRED', False):
+        return False, 'TALLY_AGENT_REQUIRED', 'Use the local connector.'
     try:
         with socket.create_connection(
             (host, int(port)), timeout=timeout or settings.TALLY_CONNECT_TIMEOUT
@@ -77,6 +79,11 @@ class TallyClient:
         return connection
 
     def post(self, payload, headers=None):
+        if getattr(settings, 'TALLY_LOCAL_AGENT_REQUIRED', False):
+            from gst_tally.connector_context import relay_client
+            result = relay_client().post(payload, headers)
+            self.last_http_status = 200
+            return result
         if not settings.TALLY_ENABLED or settings.TALLY_MOCK:
             raise TallyConnectionError("TALLY_DISABLED", "Tally integration is disabled")
 

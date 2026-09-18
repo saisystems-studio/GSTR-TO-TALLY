@@ -1,1 +1,2 @@
-pyinstaller==6.16.0
+pyinstaller>=6.10,<7
+cryptography>=43,<47

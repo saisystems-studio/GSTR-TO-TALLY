@@ -231,8 +231,15 @@ def _run_job(job_id):
     try:
         batch = GSTImportBatch.objects.get(pk=job.batch_id)
         client = LocalAgentTallyClient(job.local_agent, batch) if job.local_agent_id else TallyClient()
-        result = import_batch(batch, client=client, progress_callback=_make_progress_callback(job_id),
-                              should_pause_callback=_make_should_pause_callback(job_id))
+        from ..connector_context import current_agent, current_batch
+        agent_token = current_agent.set(job.local_agent)
+        batch_token = current_batch.set(batch)
+        try:
+            result = import_batch(batch, client=client, progress_callback=_make_progress_callback(job_id),
+                                  should_pause_callback=_make_should_pause_callback(job_id))
+        finally:
+            current_agent.reset(agent_token)
+            current_batch.reset(batch_token)
         if result.get("paused"):
             # Never reached a terminal outcome -- counts here describe an
             # in-progress run, not a finished one, so this is handled

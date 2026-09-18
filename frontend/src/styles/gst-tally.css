@@ -13301,3 +13301,11 @@ Serial numbers friends   3D transfer hero (ImportTransfer3D.jsx): the visual cen
   .step3-table th, .step3-table td { padding: 5px 4px; font-size: 10px; }
   .step3-status { white-space: normal; font-size: 9px; }
 }
+.connector-status-banner { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:10px 16px; margin:0 0 14px; border:1px solid rgba(120,130,150,.22); border-radius:10px; background:rgba(248,250,252,.9); color:#475569; font-size:12px; }
+.connector-status-banner.is-ready { border-color:#86efac; background:#f0fdf4; color:#166534; }
+.connector-status-banner a { margin-left:auto; color:#2563eb; font-weight:600; }
+.direct-tally-test { display:flex; justify-content:space-between; gap:16px; align-items:center; margin:12px 0; padding:12px 14px; border:1px dashed #94a3b8; border-radius:10px; background:#f8fafc; color:#334155; }
+.direct-tally-test p { margin:4px 0 0; font-size:12px; }
+.direct-tally-test small { display:block; margin-top:4px; color:#166534; }
+.direct-tally-test.is-connected { border-color:#86efac; background:#f0fdf4; }
+.direct-tally-test-button { white-space:nowrap; }

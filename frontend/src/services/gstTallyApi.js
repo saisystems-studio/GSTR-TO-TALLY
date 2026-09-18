@@ -35,6 +35,11 @@ export const applySuggestedInvoiceValue=(id,partyGstin,invoiceNumber,invoiceDate
 export const editInvoiceValueManually=(id,partyGstin,invoiceNumber,invoiceDate,roundOff)=>request(`/import-batches/${id}/tally-vouchers/correct/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'manual',party_gstin:partyGstin,invoice_number:invoiceNumber,invoice_date:invoiceDate,round_off:roundOff})})
 export const saveVoucherCorrection=(id,partyGstin,invoiceNumber,invoiceDate,field,value,correctionSource='manual')=>request(`/import-batches/${id}/tally-vouchers/correct/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'save_correction',party_gstin:partyGstin,invoice_number:invoiceNumber,invoice_date:invoiceDate,field,value,correction_source:correctionSource})})
 export const getTallyConnection=()=>request('/tally/connection/')
+export const getConnectorStatus=()=>request('/local-agent/status/')
+export const pairConnectorEnrollment=({ enrollmentId, proof }) => request('/local-agent/pair/', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ enrollment_id: enrollmentId, proof }),
+})
 export const verifyTallyLicense=id=>request(`/import-batches/${id}/tally-license/verify/`,{method:'POST'})
 export const verifyProductLicense=payload=>request('/license/verify/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
 export const heartbeatProductLicense=payload=>request('/license/heartbeat/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
