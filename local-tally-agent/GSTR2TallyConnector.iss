@@ -25,3 +25,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Icons]
 Name: "{userprograms}\GSTR2Tally Connector"; Filename: "{app}\{#MyAppExeName}"
+
+; Start immediately after the one normal installation. The executable is
+; windowless and also starts automatically at each subsequent Windows sign-in.
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Description: "Start GSTR2Tally Connector"; Flags: nowait postinstall skipifsilent

@@ -57,7 +57,9 @@ def snapshot(agent):
     connected = online(agent)
     reachable = bool(connected and agent.tally_reachable)
     ready = verified(agent)
-    label = ('Connector Not Installed' if not agent else 'Connecting...' if not connected
+    # These labels intentionally remain customer-facing. Connector internals
+    # never belong in the normal import UI.
+    label = ('Connector Required' if not agent else 'Connecting to Tally...' if not connected
              else 'Tally Not Running' if not reachable else
              'Ready to Import' if ready else 'Company Verification Required')
     return {**(agent.identity if agent and reachable else {}), 'status': label, 'agent_status': label, 'connected': connected, 'verified': ready,

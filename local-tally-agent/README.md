@@ -10,6 +10,6 @@ Developer build:
 
 `.\build-exe.ps1 -Origin https://your-production-origin`
 
-Then open `GSTR2TallyConnector.iss` in Inno Setup and compile it. The installer is the only customer-facing artifact.
+Then open `GSTR2TallyConnector.iss` in Inno Setup and compile it. The installer is the only customer-facing artifact. It starts the connector after installation and registers it for future Windows sign-ins.
 
 The agent checks local Tally at `http://127.0.0.1:9000`, sends a heartbeat every few seconds, and claims only jobs assigned to its own device. TLS certificate verification remains enabled for VPS calls. Tally port 9000 is never listened on by the connector and must remain excluded from Nginx/router forwarding.
