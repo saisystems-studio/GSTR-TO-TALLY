@@ -17,7 +17,7 @@ async function request(path, options={}){try{const response=await authenticatedF
 export function uploadGSTFile({returnType,returnPeriod,file}){const data=new FormData();data.append('return_type',returnType);data.append('return_period',returnPeriod);data.append('file',file);return request('/import/',{method:'POST',body:data})}
 export function previewGSTFile({returnType,file,sheetName}){const data=new FormData();data.append('return_type',returnType);data.append('file',file);if(sheetName)data.append('sheet_name',sheetName);return request('/preview/',{method:'POST',body:data})}
 export const getImportBatch=id=>request(`/batches/${id}/`)
-export const getBatchPreview=id=>request(`/batches/${id}/preview/`)
+export const getBatchPreview=(id,{page=1,pageSize=50,search=''}={})=>request(`/batches/${id}/preview/?${new URLSearchParams({page:String(page),page_size:String(pageSize),...(search ? {search} : {})})}`)
 export const getImportHistory=()=>request('/batches/')
 export const fetchBatchParties=(id,{force=false,retryIncomplete=false,gstins=[]}={})=>request(`/import-batches/${id}/fetch-parties/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force,retry_incomplete:retryIncomplete,gstins})})
 export const getBatchParties=id=>request(`/import-batches/${id}/parties/`)

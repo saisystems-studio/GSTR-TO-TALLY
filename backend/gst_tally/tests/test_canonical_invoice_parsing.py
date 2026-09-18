@@ -30,6 +30,44 @@ def stream(name, content):
     return file_obj
 
 
+class SourceCompanyGstinPriorityTests(TestCase):
+    def _csv(self, name, header, rows):
+        text = "\n".join([",".join(header), *[",".join(row) for row in rows]])
+        return stream(name, text.encode())
+
+    def test_filename_gstin_has_priority_over_file_values(self):
+        file_obj = self._csv(
+            "APR 2025 returns_12082026_R1_33AFHPM6103Q1Z8_offline_others_0.csv",
+            ["Company GSTIN", "Customer GSTIN", "Invoice No", "Invoice Date", "Invoice Value"],
+            [["29ABCDE1234F1Z5", "33AAACY4945P1ZS", "INV-1", "01/04/2025", "100"]],
+        )
+        _, metadata = ci.parse_source(file_obj, "GSTR1", extension="csv")
+        self.assertEqual(metadata["company_gstin"], "33AFHPM6103Q1Z8")
+        self.assertEqual(metadata["source_company_gstin_source"], "FILENAME")
+
+    def test_dedicated_company_column_is_used_when_filename_has_no_gstin(self):
+        file_obj = self._csv(
+            "APR_2025_GSTR1.csv",
+            ["GSTIN", "Customer GSTIN", "Invoice No", "Invoice Date", "Invoice Value"],
+            [["33AFHPM6103Q1Z8", "33AAACY4945P1ZS", "INV-1", "01/04/2025", "100"],
+             ["33AFHPM6103Q1Z8", "33AALFC8417G1ZH", "INV-2", "02/04/2025", "200"]],
+        )
+        _, metadata = ci.parse_source(file_obj, "GSTR1", extension="csv")
+        self.assertEqual(metadata["company_gstin"], "33AFHPM6103Q1Z8")
+        self.assertEqual(metadata["source_company_gstin_source"], "FILE_GSTIN_COLUMN")
+
+    def test_customer_gstin_is_never_promoted_to_company_gstin(self):
+        file_obj = self._csv(
+            "APR_2025_GSTR1.csv",
+            ["Customer GSTIN", "Invoice No", "Invoice Date", "Invoice Value"],
+            [["33AAACY4945P1ZS", "INV-1", "01/04/2025", "100"],
+             ["33AALFC8417G1ZH", "INV-2", "02/04/2025", "200"]],
+        )
+        _, metadata = ci.parse_source(file_obj, "GSTR1", extension="csv")
+        self.assertEqual(metadata["company_gstin"], "")
+        self.assertEqual(metadata["source_company_gstin_source"], "NOT_FOUND")
+
+
 class Gstr2bMultiRowHeaderRegressionTests(TestCase):
     """Task spec section 12: the exact multi-row GSTR-2B header/data example."""
 

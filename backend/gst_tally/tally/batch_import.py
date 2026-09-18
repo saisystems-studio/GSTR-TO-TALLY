@@ -2,19 +2,26 @@ from .voucher_builder import build_voucher_batch
 
 
 def iter_voucher_batches(vouchers, company, period=None, batch_size=500, max_xml_bytes=8 * 1024 * 1024):
-    """Yield bounded voucher batches and their single multi-message envelope."""
-    current = []
-    for voucher in vouchers:
-        candidate = current + [voucher]
-        payload = build_voucher_batch(candidate, company, period)
-        if current and (len(candidate) > batch_size or len(payload) > max_xml_bytes):
-            payload = build_voucher_batch(current, company, period)
-            yield current, payload
-            current = [voucher]
-        else:
-            current = candidate
-    if current:
-        yield current, build_voucher_batch(current, company, period)
+    """Yield bounded, single-build multi-voucher envelopes.
+
+    The previous implementation rebuilt the complete growing XML envelope for
+    every candidate voucher, making a 500-row chunk quadratic before it was
+    ever sent to Tally. Build each normal chunk once; only an oversized
+    payload is recursively split into smaller bounded chunks.
+    """
+    size = max(1, int(batch_size or 1))
+
+    def bounded(items):
+        payload = build_voucher_batch(items, company, period)
+        if len(payload) <= max_xml_bytes or len(items) == 1:
+            yield items, payload
+            return
+        midpoint = len(items) // 2
+        yield from bounded(items[:midpoint])
+        yield from bounded(items[midpoint:])
+
+    for start in range(0, len(vouchers), size):
+        yield from bounded(vouchers[start:start + size])
 
 
 def batch_response_is_complete(response, expected_count):

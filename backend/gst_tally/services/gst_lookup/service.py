@@ -213,8 +213,14 @@ class GSTLookupService:
             request_count = getattr(primary_service.provider, "lookup_request_count", None)
             diagnostics["api_calls"] += request_count if isinstance(request_count, int) else int(attempted)
             diagnostics["http_status"] = getattr(primary_service.provider, "last_http_status", None)
+            diagnostics["lookup_failed"] = bool(isinstance(diagnostics["http_status"], int) and not 200 <= diagnostics["http_status"] < 300)
             diagnostics["raw_provider_response"] = getattr(primary_service.provider, "last_response_body", "")
             diagnostics["request_metadata"] = getattr(primary_service.provider, "last_request_metadata", {})
+            diagnostics["environment"] = primary_service.provider.config.get("environment", "")
+            diagnostics["base_url"] = primary_service.provider.config.get("base_url", "")
+            diagnostics["credential_type"] = "TEST" if diagnostics["environment"] == "test" else "PRODUCTION" if diagnostics["environment"] == "production" else "UNKNOWN"
+            diagnostics["authentication_status"] = "valid"
+            diagnostics["token_refreshed"] = bool(getattr(primary_service.provider, "last_token_refreshed", False))
             diagnostics["sandbox_success"] = primary_name == "sandbox"
             diagnostics["normalized"] = True
         except GSTLookupAuthenticationError as exc:
@@ -230,6 +236,12 @@ class GSTLookupService:
                                request_metadata=getattr(provider, "last_request_metadata", {}),
                                response_shape=getattr(provider, "last_response_shape", None),
                                normalized=False, sandbox_success=False)
+            diagnostics["lookup_failed"] = bool(isinstance(diagnostics.get("http_status"), int) and not 200 <= diagnostics["http_status"] < 300)
+            diagnostics["environment"] = provider.config.get("environment", "")
+            diagnostics["base_url"] = provider.config.get("base_url", "")
+            diagnostics["credential_type"] = "TEST" if diagnostics["environment"] == "test" else "PRODUCTION" if diagnostics["environment"] == "production" else "UNKNOWN"
+            diagnostics["authentication_status"] = "valid" if getattr(provider, "last_token_refreshed", False) or diagnostics.get("sandbox_access_token_valid") else "failed"
+            diagnostics["token_refreshed"] = bool(getattr(provider, "last_token_refreshed", False))
             exc.lookup_diagnostics = diagnostics
             raise
         except (GSTLookupTimeoutError, GSTLookupProviderError, GSTLookupNotFoundError) as exc:
@@ -245,6 +257,12 @@ class GSTLookupService:
                                request_metadata=getattr(provider, "last_request_metadata", {}),
                                response_shape=getattr(provider, "last_response_shape", None),
                                normalized=False, sandbox_success=False)
+            diagnostics["lookup_failed"] = bool(isinstance(diagnostics.get("http_status"), int) and not 200 <= diagnostics["http_status"] < 300)
+            diagnostics["environment"] = provider.config.get("environment", "")
+            diagnostics["base_url"] = provider.config.get("base_url", "")
+            diagnostics["credential_type"] = "TEST" if diagnostics["environment"] == "test" else "PRODUCTION" if diagnostics["environment"] == "production" else "UNKNOWN"
+            diagnostics["authentication_status"] = "valid" if diagnostics.get("sandbox_access_token_valid") else "failed"
+            diagnostics["token_refreshed"] = bool(getattr(provider, "last_token_refreshed", False))
             exc.lookup_diagnostics = diagnostics
             raise
         except GSTLookupRateLimitError as exc:

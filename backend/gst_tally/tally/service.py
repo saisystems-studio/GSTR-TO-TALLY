@@ -835,10 +835,10 @@ def _update_registry_from_result(batch, voucher, result_status, reason="", vouch
     if invoice is None:
         return None
     registry_status = _registry_status_for_result(result_status)
-    # Keep the registry transition and the derived permanent summary in one
-    # database transaction. Tally is never compensated with a delete if this
-    # transaction fails; the durable pending/reconciliation status remains the
-    # safe outcome for an already accepted Tally write.
+    # Keep the registry transition atomic. The derived aggregate is refreshed
+    # once at import completion (or batch completion), not per voucher: a
+    # summary refresh runs multiple aggregate queries and was an avoidable
+    # N× database cost on large imports.
     with transaction.atomic():
         registry = upsert_voucher_registry(
             batch,
@@ -850,7 +850,6 @@ def _update_registry_from_result(batch, voucher, result_status, reason="", vouch
             last_error_code=error_code,
             last_error_message=reason if registry_status != IMPORTED else "",
         )
-        update_company_import_summary(batch.company_import_summary)
         return registry
 
 
@@ -1933,14 +1932,20 @@ def prepare(batch, company_state=None):
                 idempotency_key__in=list(candidate_keys), import_status="Imported",
             ).exclude(batch=batch).values("idempotency_key", "batch_id", "imported_at")
         }
+    # Party readiness is batch-scoped data. Resolve each GSTIN once instead
+    # of issuing a database query for every voucher in a large import.
+    from gst_tally.models import GSTParty
+    party_by_gstin = {
+        party.gstin: party
+        for party in GSTParty.objects.filter(
+            gstin__in={voucher.get("party", {}).get("gstin", "") for voucher in vouchers}
+        )
+    }
     output = []
     for voucher in vouchers:
-        invoice = GSTInvoice.objects.get(pk=voucher["invoice_id"])
         party = voucher["party"]
         eligibility = party_eligibility(
-            __import__("gst_tally.models", fromlist=["GSTParty"])
-            .GSTParty.objects.filter(gstin=party["gstin"])
-            .first(),
+            party_by_gstin.get(party["gstin"]),
             party["name"],
             party["gstin"],
             party.get("state", ""),
@@ -2036,37 +2041,6 @@ def prepare(batch, company_state=None):
             skip_reason_code = "INVALID_SOURCE_DATA"
         elif status == "Already Imported":
             skip_reason_code = "DUPLICATE_ALREADY_IMPORTED"
-        print("=== VOUCHER VALIDATION ===")
-        print(
-            {
-                "invoice_number": voucher["invoice_number"],
-                "invoice_date": voucher["invoice_date"],
-                "party": party["name"],
-                "gstin": party["gstin"],
-                "taxable_total": voucher["taxable_total"],
-                "cgst_total": voucher["cgst"],
-                "sgst_total": voucher["sgst"],
-                "igst_total": voucher["igst"],
-                "cess_total": voucher["cess"],
-                "invoice_total": voucher["invoice_total"],
-                "calculated_total": validation.get("calculated_total"),
-                "difference": validation.get("difference"),
-                "invoice_total_valid": validation["critical_valid"]
-                and validation.get("within_rounding_tolerance"),
-                "party_master_ready": eligibility["tally_ready"],
-                "party_master_reason": eligibility.get("reason", ""),
-                "party_master_warning_code": eligibility.get("warning_code", ""),
-                # Duplicate/already-imported and Tally master-existence checks run later,
-                # against the live Tally connection (Step 4/Step 6) -- not at this
-                # source-data preview stage, so they are not decided here.
-                "import_eligible": status in ("Ready", "Ready with GSTIN Fallback"),
-                "final_status": status,
-                "skip_reason_code": skip_reason_code,
-                "skip_reason": (
-                    reason if status in ("Skipped", "Needs Attention") else ""
-                ),
-            }
-        )
         source_total_mismatch = bool(
             money(validation["difference"])
             and not validation["within_rounding_tolerance"]
@@ -3231,7 +3205,10 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
         bool(settings.TALLY_ENABLED and not settings.TALLY_DRY_RUN),
         settings.TALLY_WRITE_FORMAT,
     )
+    preparation_started = time.perf_counter()
     company, vouchers, masters = prepare(batch, status.get("state"))
+    preparation_elapsed_ms = (time.perf_counter() - preparation_started) * 1000
+    logger.info("IMPORT PERFORMANCE preparation_ms=%.1f voucher_count=%s", preparation_elapsed_ms, len(vouchers))
     scope_id = batch.company_scope_id or company_scope_id_for(
         company_gstin=company["gstin"],
         return_type=batch.gst_return_type,
@@ -4351,9 +4328,11 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
     clean_batch_candidates = [v for v in vouchers if _voucher_ready(v)]
     clean_batch_possible = (
         clean_batch_candidates
-        and should_pause_callback is None
         and hasattr(client, "import_data_batch")
-        and len(clean_batch_candidates) <= getattr(settings, "TALLY_IMPORT_BATCH_SIZE", 500)
+        # The iterator below splits large imports into bounded envelopes.  A
+        # batch write is only safe when every source row is eligible; otherwise
+        # returning early would drop validation/skipped rows from the result.
+        and len(clean_batch_candidates) == len(vouchers)
         and not existing_mappings
         and not preflight.get("vouchers")
         and not failed_master_names
@@ -4361,57 +4340,117 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
         and all(_voucher_balance(v)["balanced"] for v in clean_batch_candidates)
     )
     if clean_batch_possible:
-        batch_items, batch_payload = next(iter_voucher_batches(
+        batch_chunks = iter_voucher_batches(
             clean_batch_candidates, target_name, required_period,
             batch_size=getattr(settings, "TALLY_IMPORT_BATCH_SIZE", 500),
             max_xml_bytes=getattr(settings, "TALLY_IMPORT_MAX_XML_BYTES", 8 * 1024 * 1024),
-        ))
-        if len(batch_items) == len(clean_batch_candidates):
-            batch_started = time.perf_counter()
-            logger.info("TALLY SEND START batch_id=%s chunk_number=1 voucher_count=%s", batch.id, len(batch_items))
+        )
+        batch_results = []
+        batch_started = time.perf_counter()
+        tally_elapsed_ms = 0.0
+        persistence_elapsed_ms = 0.0
+        ambiguous_chunk = None
+        batch_count = 0
+        total_xml_bytes = 0
+        for chunk_number, (batch_items, batch_payload) in enumerate(batch_chunks, start=1):
+            # A running job still supports pause safely at the next bounded
+            # Tally batch. This keeps multi-voucher writes enabled for normal
+            # background jobs instead of disabling batching merely because a
+            # pause callback was supplied.
+            if should_pause_callback and should_pause_callback():
+                paused = True
+                break
+            batch_count = chunk_number
+            total_xml_bytes += len(batch_payload)
+            logger.info("TALLY SEND START batch_id=%s chunk_number=%s voucher_count=%s", batch.id, chunk_number, len(batch_items))
+            send_started = time.perf_counter()
             response = client.import_data_batch(batch_payload)
-            logger.info("TALLY RESPONSE batch_id=%s chunk_number=1 created=%s altered=%s errors=%s ignored=%s exceptions=%s",
-                        batch.id, response.created, response.altered, response.errors, response.ignored, response.exceptions)
-            batch_elapsed_ms = (time.perf_counter() - batch_started) * 1000
-            logger.info(
-                "IMPORT PERFORMANCE vouchers=%s batches=1 xml_bytes=%s tally_post_ms=%.1f tally_post_requests=1 verification_requests=0",
-                len(batch_items), len(batch_payload), batch_elapsed_ms,
-            )
-            if batch_response_is_complete(response, len(batch_items)):
-                batch_results = []
-                imported_at = timezone.now()
-                for voucher in batch_items:
-                    key = _key(company["gstin"], voucher, batch.company_scope_id or scope_id)
-                    TallyVoucherMapping.objects.update_or_create(
-                        idempotency_key=key,
-                        defaults={"batch": batch, "invoice_id": voucher["invoice_id"],
-                                  "source_invoice_number": voucher["invoice_number"],
-                                  "party_gstin": voucher["party"]["gstin"], "tally_company": target_name,
-                                  "tally_voucher_identifier": response.last_vch_id,
-                                  "import_status": "Imported", "error_message": "", "imported_at": imported_at},
-                    )
-                    _update_registry_from_result(batch, voucher, "Imported", "Tally accepted the batch write.",
-                                                 voucher_identifier=response.last_vch_id, invoices_by_id=invoices_by_id)
-                    batch_results.append({"invoice_no": voucher["invoice_number"], "date": voucher["invoice_date"],
-                                          "party": voucher["party"]["name"], "gstin": voucher["party"]["gstin"],
-                                          "voucher_type": voucher.get("voucher_type", "Sales"), "status": "Imported",
-                                          "reason": "Tally accepted the batch write.", "voucher_identifier": response.last_vch_id})
-                if progress_callback:
-                    progress_callback(len(batch_items), len(batch_items), batch_results, "")
-                counts = {"total": len(vouchers), "eligible": len(batch_items), "attempted": len(batch_items),
-                          "imported": len(batch_items), "already_imported": 0, "failed": 0, "skipped": 0,
-                          "total_eligible": len(batch_items), "remaining": 0}
-                # The bulk path must reconcile the persisted registry/summary
-                # just like the per-voucher path.  Returning before this
-                # update left the UI correct for the job response while the
-                # database still reported PENDING on refresh/history screens.
-                if batch.company_import_summary_id:
-                    update_company_import_summary(batch.company_import_summary)
-                return {"batch_id": batch.id, "file_type": batch.file_type, **import_outcome(counts),
-                        "import_status": "Import Successful", "paused": False,
-                        "processed_before_pause": len(batch_items), "results": batch_results,
-                        "summary": counts, "batch_count": 1, "tally_post_requests": 1,
-                        "tally_verification_requests": 0, "message": "Tally accepted the voucher batch."}
+            tally_elapsed_ms += (time.perf_counter() - send_started) * 1000
+            logger.info("TALLY RESPONSE batch_id=%s chunk_number=%s created=%s altered=%s errors=%s ignored=%s exceptions=%s",
+                        batch.id, chunk_number, response.created, response.altered, response.errors, response.ignored, response.exceptions)
+            if not batch_response_is_complete(response, len(batch_items)):
+                # An aggregate response cannot safely identify which writes
+                # Tally accepted. Stop here and leave this chunk plus all
+                # remaining rows unresolved; the normal reconciliation/retry
+                # path will query Tally before any future write.
+                ambiguous_chunk = (chunk_number, batch_items, response)
+                break
+            persist_started = time.perf_counter()
+            imported_at = timezone.now()
+            for voucher in batch_items:
+                key = _key(company["gstin"], voucher, batch.company_scope_id or scope_id)
+                TallyVoucherMapping.objects.update_or_create(
+                    idempotency_key=key,
+                    defaults={"batch": batch, "invoice_id": voucher["invoice_id"],
+                              "source_invoice_number": voucher["invoice_number"],
+                              "party_gstin": voucher["party"]["gstin"], "tally_company": target_name,
+                              "tally_voucher_identifier": response.last_vch_id,
+                              "import_status": "Imported", "error_message": "", "imported_at": imported_at},
+                )
+                _update_registry_from_result(batch, voucher, "Imported", "Tally accepted the batch write.",
+                                             voucher_identifier=response.last_vch_id, invoices_by_id=invoices_by_id)
+                batch_results.append({"invoice_no": voucher["invoice_number"], "date": voucher["invoice_date"],
+                                      "party": voucher["party"]["name"], "gstin": voucher["party"]["gstin"],
+                                      "voucher_type": voucher.get("voucher_type", "Sales"), "status": "Imported",
+                                      "reason": "Tally accepted the batch write.", "voucher_identifier": response.last_vch_id})
+            persistence_elapsed_ms += (time.perf_counter() - persist_started) * 1000
+            if progress_callback:
+                progress_callback(len(batch_results), len(clean_batch_candidates), batch_results, "")
+        batch_elapsed_ms = (time.perf_counter() - batch_started) * 1000
+        logger.info(
+            "IMPORT PERFORMANCE vouchers=%s batches=%s xml_bytes=%s total_ms=%.1f tally_post_ms=%.1f persistence_ms=%.1f tally_post_requests=%s verification_requests=0",
+            len(clean_batch_candidates), batch_count, total_xml_bytes, batch_elapsed_ms,
+            tally_elapsed_ms, persistence_elapsed_ms, batch_count,
+        )
+        if paused:
+            imported_count = len(batch_results)
+            counts = {"total": len(vouchers), "eligible": len(clean_batch_candidates), "attempted": imported_count,
+                      "imported": imported_count, "already_imported": 0, "failed": 0, "skipped": 0,
+                      "total_eligible": len(clean_batch_candidates), "remaining": len(clean_batch_candidates) - imported_count}
+            if batch.company_import_summary_id:
+                update_company_import_summary(batch.company_import_summary)
+            return {"batch_id": batch.id, "file_type": batch.file_type, **import_outcome(counts),
+                    "import_status": "Import Paused", "paused": True,
+                    "processed_before_pause": imported_count, "results": batch_results,
+                    "summary": counts, "batch_count": batch_count, "tally_post_requests": batch_count,
+                    "tally_verification_requests": 0, "message": "Import paused between Tally batches."}
+        if ambiguous_chunk is None:
+            counts = {"total": len(vouchers), "eligible": len(clean_batch_candidates), "attempted": len(clean_batch_candidates),
+                      "imported": len(clean_batch_candidates), "already_imported": 0, "failed": 0, "skipped": 0,
+                      "total_eligible": len(clean_batch_candidates), "remaining": 0}
+            if batch.company_import_summary_id:
+                update_company_import_summary(batch.company_import_summary)
+            return {"batch_id": batch.id, "file_type": batch.file_type, **import_outcome(counts),
+                    "import_status": "Import Successful", "paused": False,
+                    "processed_before_pause": len(clean_batch_candidates), "results": batch_results,
+                    "summary": counts, "batch_count": batch_count, "tally_post_requests": batch_count,
+                    "tally_verification_requests": 0, "message": "Tally accepted the voucher batches."}
+        # Keep the response complete and safe after an ambiguous aggregate
+        # acknowledgement. No unresolved voucher is resent in this run.
+        _, ambiguous_items, _ = ambiguous_chunk
+        unresolved_rows = []
+        completed_count = len(batch_results)
+        for voucher in [*ambiguous_items, *clean_batch_candidates[completed_count + len(ambiguous_items):]]:
+            reason = "Tally returned an ambiguous batch response; verify in Tally before retrying."
+            _update_registry_from_result(batch, voucher, "Unknown / Verify Before Retry", reason,
+                                         error_code="TALLY_BATCH_RESPONSE_AMBIGUOUS", invoices_by_id=invoices_by_id)
+            unresolved_rows.append({"invoice_no": voucher["invoice_number"], "date": voucher["invoice_date"],
+                                    "party": voucher["party"]["name"], "gstin": voucher["party"]["gstin"],
+                                    "voucher_type": voucher.get("voucher_type", "Sales"),
+                                    "status": "Unknown / Verify Before Retry", "reason": reason,
+                                    "voucher_identifier": ""})
+        batch_results.extend(unresolved_rows)
+        counts = {"total": len(vouchers), "eligible": len(clean_batch_candidates), "attempted": len(clean_batch_candidates),
+                  "imported": len(batch_results) - len(unresolved_rows), "already_imported": 0,
+                  "failed": 0, "unknown": len(unresolved_rows), "skipped": 0,
+                  "total_eligible": len(clean_batch_candidates), "remaining": 0}
+        if batch.company_import_summary_id:
+            update_company_import_summary(batch.company_import_summary)
+        return {"batch_id": batch.id, "file_type": batch.file_type, **import_outcome(counts),
+                "import_status": "Partial Import", "paused": False,
+                "processed_before_pause": len(batch_results), "results": batch_results,
+                "summary": counts, "batch_count": batch_count, "tally_post_requests": batch_count,
+                "tally_verification_requests": 0, "message": "Tally returned an ambiguous batch response; verify before retrying."}
     for voucher_index, voucher in enumerate(vouchers):
         # Checked before any Tally I/O for this voucher -- so a pause never
         # interrupts a write already in flight, only ever stops the loop

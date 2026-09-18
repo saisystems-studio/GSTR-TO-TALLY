@@ -974,6 +974,36 @@ class SandboxConfigurationView(APIView):
                 # network error) where there is no upstream message to show.
                 "detail": exc.safe_message or _SANDBOX_ERROR_MESSAGE.get(category, "Sandbox authentication failed.")},
                 status=_SANDBOX_ERROR_HTTP_STATUS.get(category, 503))
+        # Authentication alone is insufficient: prove the selected key and
+        # environment can perform the actual taxpayer lookup before reporting
+        # the provider as ready. The GSTIN is diagnostic input only and is
+        # never persisted or returned as a credential.
+        test_gstin = str(request.data.get("test_gstin") or getattr(settings, "SANDBOX_TEST_GSTIN", "33AAACY4945P1ZS")).strip().upper()
+        try:
+            provider.lookup(test_gstin, force=True)
+        except Exception as exc:
+            request_metadata = getattr(provider, "last_request_metadata", {})
+            provider_message = getattr(provider, "last_provider_message", None) or str(exc) or "Sandbox GSTIN lookup failed."
+            lookup_status = getattr(provider, "last_http_status", None)
+            self._test_diagnostics = {
+                "configuration_source": "database" if not any(submitted(field) for field in ("api_key", "api_secret")) else "request",
+                "environment": environment, "credentials_present": True,
+                "authentication_attempted": True, "authentication_status": "connected",
+                "taxpayer_lookup_attempted": True, "taxpayer_lookup_http_status": lookup_status,
+                "provider_message": provider_message[:512], "lookup_failed": True,
+                "masked_placeholders_detected": masked_placeholders_detected,
+                "whitespace_detected": whitespace_detected,
+                "authentication_request": {key: request_metadata.get(key) for key in ("url", "method", "header_names", "body_keys")},
+                **credential_diagnostics(request_metadata),
+            }
+            return None, Response({"authenticated": True, "credentials_status": "valid",
+                "connection_status": "lookup_failed", "lookup_ready": False,
+                "configuration_source": self._test_diagnostics["configuration_source"],
+                "environment": environment, "authentication_status": "connected",
+                "taxpayer_lookup_attempted": True, "taxpayer_lookup_http_status": lookup_status,
+                "lookup_failed": True, "code": "SANDBOX_LOOKUP_FAILED",
+                "message": f"Authentication successful, but GSTIN lookup failed: {provider_message[:512]}",
+                "provider_message": provider_message[:512], **credential_diagnostics(request_metadata)}, status=502)
         finally:
             # Testing candidate credentials never installs their token into runtime.
             provider.clear_session_cache()
@@ -982,7 +1012,8 @@ class SandboxConfigurationView(APIView):
             "configuration_source": "database" if not any(submitted(field) for field in ("api_key", "api_secret")) else "request",
             "environment": environment, "credentials_present": True,
             "authentication_attempted": True, "upstream_http_status": provider.last_http_status,
-            "taxpayer_lookup_attempted": False,
+            "taxpayer_lookup_attempted": True,
+            "taxpayer_lookup_http_status": provider.last_http_status,
             "masked_placeholders_detected": masked_placeholders_detected,
             "whitespace_detected": whitespace_detected,
             "authentication_request": {key: request_metadata.get(key) for key in ("url", "method", "header_names", "body_keys")},
@@ -996,7 +1027,9 @@ class SandboxConfigurationView(APIView):
             return error
         return Response({"authenticated": True, "credentials_status": "valid", "connection_status": "connected",
                          **self._test_diagnostics,
-                         "lookup_ready": True, "message": "Connection successful. Credentials valid."})
+                         "lookup_ready": True, "authentication_status": "connected",
+                         "taxpayer_lookup_http_status": self._test_diagnostics.get("taxpayer_lookup_http_status"),
+                         "message": "Connection successful. GSTIN lookup is ready."})
 
     def put(self, request):
         import uuid

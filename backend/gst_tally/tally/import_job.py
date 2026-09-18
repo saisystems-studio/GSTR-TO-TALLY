@@ -160,7 +160,7 @@ def _make_progress_callback(job_id):
 
     def _callback(processed, total, results_so_far, current_invoice):
         now = time.monotonic()
-        interval = max(0.0, float(getattr(settings, "TALLY_IMPORT_PROGRESS_INTERVAL", 0.5)))
+        interval = max(0.0, float(getattr(settings, "TALLY_IMPORT_PROGRESS_INTERVAL", 0.25)))
         if processed != total and now - last_update[0] < interval:
             return
         last_update[0] = now

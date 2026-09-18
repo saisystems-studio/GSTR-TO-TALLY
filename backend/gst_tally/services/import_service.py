@@ -126,6 +126,7 @@ def _dedupe_rows(rows, *, company_gstin, return_type, user, registry_by_hash=Non
         registry = registry_by_hash.get(voucher_hash)
         if registry and registry.import_status in FINAL_SUCCESS_STATUSES:
             # A. ALREADY_IMPORTED -- counted, never mutated, never resent.
+            row["_preview_status"] = "ALREADY_IMPORTED"
             duplicate_count += 1
             already_imported_count += 1
             continue
@@ -142,6 +143,7 @@ def _dedupe_rows(rows, *, company_gstin, return_type, user, registry_by_hash=Non
                 # whether the content changed, since e.g. a required Tally
                 # master may exist now even for identical data).
                 duplicate_count += 1
+                row["_preview_status"] = "ALREADY_IMPORTED"
                 continue
             # B. RETRY_CANDIDATE -- once per voucher identity per upload
             # (multiple source rows can share one invoice-level identity).
@@ -151,8 +153,10 @@ def _dedupe_rows(rows, *, company_gstin, return_type, user, registry_by_hash=Non
         elif fingerprint in existing:
             # D. DUPLICATE (no registry, but identical content already on file).
             duplicate_count += 1
+            row["_preview_status"] = "ALREADY_IMPORTED"
             continue
         # C. NEW, or B continuing through to a fresh revalidation attempt.
+        row["_preview_status"] = "READY"
         row["dedup_fingerprint"] = fingerprint
         new_rows.append(row)
     return new_rows, duplicate_count, already_imported_count, len(prepared_retries)
@@ -242,7 +246,9 @@ def import_file(file_obj, return_type, return_period, user=None, selected_tally_
         expires_at=timezone.now() + timedelta(hours=24))
     if active_batch and len(rows) > batch.total_rows:
         batch.total_rows = len(rows)
-        batch.save(update_fields=["total_rows", "updated_at"])
+        batch.file_name = file_obj.name
+        batch.file_type = file_type
+        batch.save(update_fields=["total_rows", "file_name", "file_type", "updated_at"])
     if not active_batch and summary:
         batch.company_import_summary = summary
         batch.save(update_fields=["company_import_summary", "updated_at"])
@@ -251,6 +257,7 @@ def import_file(file_obj, return_type, return_period, user=None, selected_tally_
     for row in new_rows:
         try:
             row.pop("_voucher_identity_hash", None)
+            row.pop("_preview_status", None)
             row["filing_period"] = row.get("filing_period") or period
             row["filing_type"] = row.get("filing_type") or return_type
             # The source date remains immutable.  A prior-period row uploaded
@@ -267,6 +274,31 @@ def import_file(file_obj, return_type, return_period, user=None, selected_tally_
             invoices.append(invoice)
             if summary:
                 upsert_voucher_registry(batch, invoice)
+        except (TypeError, ValueError):
+            failed_rows += 1
+    # Keep duplicate source rows in the persisted preview. They are never
+    # actionable (processing_state=DUPLICATE), but hiding them made a re-upload
+    # look like data had disappeared and prevented users from inspecting the
+    # complete file. Voucher generation only selects PENDING/RETRY rows.
+    for row in rows:
+        if row.get("_preview_status") != "ALREADY_IMPORTED":
+            continue
+        try:
+            duplicate_row = dict(row)
+            duplicate_row.pop("_voucher_identity_hash", None)
+            duplicate_row.pop("_preview_status", None)
+            duplicate_row["filing_period"] = duplicate_row.get("filing_period") or period
+            duplicate_row["filing_type"] = duplicate_row.get("filing_type") or return_type
+            duplicate_row["processing_state"] = "DUPLICATE"
+            duplicate_row["dedup_fingerprint"] = invoice_fingerprint(
+                company_gstin=company_gstin, return_type=return_type,
+                party_gstin=duplicate_row.get(party_field, "") if party_field else "",
+                invoice_no=duplicate_row.get("invoice_no", ""), invoice_date=duplicate_row.get("invoice_date"),
+                invoice_type=duplicate_row.get("invoice_type", ""), taxable_value=duplicate_row.get("taxable_value"),
+                cgst=duplicate_row.get("cgst"), sgst=duplicate_row.get("sgst"), igst=duplicate_row.get("igst"),
+                invoice_value=duplicate_row.get("invoice_value"),
+            )
+            GSTInvoice.objects.create(import_batch=batch, **duplicate_row)
         except (TypeError, ValueError):
             failed_rows += 1
     # This is the upload's actionable-row count, not the number of retained

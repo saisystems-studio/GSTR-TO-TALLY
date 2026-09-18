@@ -13,7 +13,5 @@ export function step3Rows(result) {
     ['Company GSTIN', value(result.company?.source_gstin), value(result.company?.tally_gstin), result.company?.gstin_match, 'Correct Company Opened — Company GSTIN Verified'],
     ['Tally License', result.tally_license?.registered_serial || 'Not Configured', value(result.tally_license?.detected_serial), result.tally_license?.match, 'Registered Tally License In Use'],
     ['Product Limit', result.product?.limit ?? 'Not Configured', usage(result.product), result.product?.allowed, 'Product Allowed'],
-    ['Device', 'Registered', value(result.device?.device_name), result.device?.authorized, 'Device Authorized'],
-    ['Device Limit', result.device?.limit ?? 'Not Configured', usage(result.device), result.device?.limit_allowed, 'Device Limit Allowed'],
   ]
 }

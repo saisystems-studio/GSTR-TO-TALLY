@@ -40,6 +40,7 @@ overloaded meaning.
 import csv
 import io
 import logging
+import re
 from decimal import Decimal
 
 from openpyxl import Workbook, load_workbook
@@ -104,7 +105,15 @@ PARTY_FIELDS = {"GSTR1": ("customer_gstin", "customer_name"),
                 "GSTR2A": ("supplier_gstin", "supplier_name"),
                 "GSTR2B": ("supplier_gstin", "supplier_name")}
 
-COMPANY_ALIASES = ["GSTIN of recipient", "Recipient GSTIN", "Company GSTIN", "My GSTIN", "Taxpayer GSTIN"]
+# These headers identify the return owner's GSTIN.  Deliberately do not add
+# customer/party/buyer/recipient variants: those belong to invoice parties
+# and must never become the expected Tally company identity.
+COMPANY_ALIASES = [
+    "GSTIN", "GST", "GST No", "GST Number", "GSTIN No", "GSTIN Number",
+    "Company GSTIN", "Company GST", "Supplier GSTIN", "Seller GSTIN",
+    "My GSTIN", "Taxpayer GSTIN",
+]
+FILENAME_GSTIN = re.compile(r"(?<![A-Z0-9])([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z])(?![A-Z0-9])")
 
 KNOWN_GST_RATES = [Decimal(v) for v in ("0", "0.1", "0.25", "1", "1.5", "3", "5", "6", "7.5", "12", "18", "28", "40")]
 
@@ -521,12 +530,42 @@ def parse_source(file_obj, return_type, extension=None):
     endpoints, which accept any of the three formats for one return type)."""
     extension = extension or validate_upload_type(file_obj, ALLOWED_EXTENSIONS)
     if extension == "json":
-        return parse_json(file_obj, return_type)
-    if extension == "csv":
-        return parse_csv(file_obj, return_type)
-    if extension in ("xlsx", "xls"):
-        return parse_excel(file_obj, return_type)
-    raise ValueError("Unsupported input format")
+        result = parse_json(file_obj, return_type)
+    elif extension == "csv":
+        result = parse_csv(file_obj, return_type)
+    elif extension in ("xlsx", "xls"):
+        result = parse_excel(file_obj, return_type)
+    else:
+        raise ValueError("Unsupported input format")
+
+    # Source identity is determined once at upload normalization. A valid
+    # GSTIN anywhere in the original filename is authoritative and avoids a
+    # later file re-read during company/Tally verification.
+    filename = str(getattr(file_obj, "name", "") or "").upper()
+    match = FILENAME_GSTIN.search(filename)
+    if match:
+        filename_gstin = normalize_gstin(match.group(1))
+        if valid_gstin(filename_gstin):
+            from .company import source_company_metadata
+            rows, metadata = result
+            source = dict(metadata.get("company_source") or {})
+            source["source_company_gstin_source"] = "FILENAME"
+            metadata.update(source_company_metadata([filename_gstin], source))
+            metadata["source_company_gstin_source"] = "FILENAME"
+            return rows, metadata
+    # The per-format parser has already considered only the dedicated company
+    # fields above. Preserve its result and record where it came from for
+    # diagnostics without ever promoting a party GSTIN.
+    result[1]["source_company_gstin_source"] = (
+        "JSON_COMPANY_GSTIN" if extension == "json" and result[1].get("company_gstin")
+        else "FILE_GSTIN_COLUMN" if result[1].get("company_gstin")
+        else "NOT_FOUND"
+    )
+    result[1]["company_source"] = {
+        **(result[1].get("company_source") or {}),
+        "source_company_gstin_source": result[1]["source_company_gstin_source"],
+    }
+    return result
 
 
 def _diagnostics_counts(rows, return_type):

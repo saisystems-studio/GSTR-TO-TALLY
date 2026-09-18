@@ -331,6 +331,7 @@ class GSTInvoice(models.Model):
             models.Index(fields=["source_type"], name="gst_inv_source_idx"),
             models.Index(fields=["filing_period"], name="gst_inv_period_idx"),
             models.Index(fields=["is_carry_forward", "posting_period"], name="gst_inv_carry_period_idx"),
+            models.Index(fields=["import_batch", "id"], name="gst_inv_batch_page_idx"),
         ]
 
 class GSTParty(models.Model):

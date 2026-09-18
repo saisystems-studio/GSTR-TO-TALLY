@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Step3Verification from '../components/gst-tally/Step3Verification'
 import { step3Ready } from '../utils/step3Verification'
 import DataTransferAnimation from '../components/gst-tally/DataTransferAnimation'
@@ -37,7 +37,6 @@ import { chooseAnotherFile, duplicateFileNoticeFromError } from '../utils/duplic
 import { finalImportToast } from '../utils/importOutcome'
 import { licenseFailureUi } from '../utils/licenseSecurityUi'
 import { getProcessingStage, getProcessingVisualMode, PROCESSING_READY_COMPLETE_MS } from '../utils/processingAnimation'
-import { filterPreviewRows } from '../utils/previewFormat'
 import { buildPrepState, canStartImport, companyDetailsReadiness, confirmMastersReadiness, defaultFileFormat, detectFileFormat, fileFormatExtension, filterMastersRows, isTallyConnectionReady, mastersSummaryFromRows, normalizeCompanyVerificationResult, readyBreakdownText, searchMastersRows, shouldAutoStartImport, tallyConnectionErrorMessage, RETURN_TYPE_FILE_FORMATS } from '../utils/workflowState'
 import '../styles/gst-tally.css'
 
@@ -61,7 +60,10 @@ const STEP_META = {
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const ACTIVE_JOB_STATUSES = ['PENDING', 'RUNNING', 'VERIFYING']
 const TERMINAL_JOB_STATUSES = ['COMPLETED', 'PARTIAL', 'FAILED', 'INTERRUPTED']
-const JOB_POLL_INTERVAL_MS = 2000
+// Coalesce backend progress updates at a quarter-second cadence.  The job
+// endpoint returns compact counters while terminal results are only attached
+// once, so this remains cheap even for large imports.
+const JOB_POLL_INTERVAL_MS = 250
 // Mirrors tally/client.py::TallyConnectionError's `code` values -- every
 // code that means "Tally itself dropped/never answered", as opposed to a
 // per-voucher rejection Tally responded to normally.
@@ -99,6 +101,10 @@ function parsePreviewBatchIdFromPath(pathname) {
   const match = /^\/gst-tally\/preview\/(\d+)/.exec(pathname || '')
   return match ? match[1] : null
 }
+function parseFlowBatchIdFromPath(pathname) {
+  const match = /^\/gst-tally\/(?:preview|masters|vouchers|import)\/?(\d+)?/.exec(pathname || '')
+  return match?.[1] || null
+}
 function rememberLastBatch(batch) {
   if (!batch?.id) return
   try { window.sessionStorage.setItem(LAST_BATCH_STORAGE_KEY, JSON.stringify({ id: batch.id })) } catch { }
@@ -115,7 +121,13 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   // reading the batch id straight out of the URL here (rather than only
   // from location.state) is what lets Step 2 restore correctly on refresh
   // instead of bouncing to Step 1. See the recovery effect below `go`.
-  const [screen, setScreen] = useState(() => parsePreviewBatchIdFromPath(window.location.pathname) ? 'preview' : 'upload')
+  const [screen, setScreen] = useState(() => {
+    const pathname = window.location.pathname
+    if (/\/gst-tally\/vouchers/.test(pathname)) return 'vouchers'
+    if (/\/gst-tally\/masters/.test(pathname)) return 'masters'
+    if (/\/gst-tally\/import/.test(pathname)) return 'import'
+    return parsePreviewBatchIdFromPath(pathname) ? 'preview' : 'upload'
+  })
   // Profile is a lightweight overlay on top of the step workflow, not a step
   // itself -- opening/closing it must never touch batch/processing/step
   // state (see the dropdown in AppShell's UserMenu), so it lives in its own
@@ -262,19 +274,19 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   // browser refresh, so the two can never drift apart. Never re-uploads or
   // re-parses the source file: a completed import already has these rows
   // persisted server-side (see backend services/source_preview.preview_batch).
-  const loadBatchPreview = async id => {
+  const loadBatchPreview = useCallback(async (id, options = {}) => {
     setPreviewLoading(true)
     setPreviewProcessingStartedAt(Date.now())
     setPreviewError('')
     try {
-      const data = await getBatchPreview(id)
+      const data = await getBatchPreview(id, options)
       setPreview(data)
     } catch (error) {
       setPreviewError(error.message || 'Batch created successfully, but preview data could not be loaded.')
     } finally {
       setPreviewLoading(false)
     }
-  }
+  }, [])
   // Guards against a double-click starting two import batches for one file
   // select -- the Upload button is already disabled while busy==='import-file'
   // (see LoadingButton), but that only takes effect after a re-render, so a
@@ -312,14 +324,9 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
       setPreview(previewData)
       setProcessingBackendDone(true)
 
-      // The remaining wait is only the already-running visual animation; it
-      // never starts or substitutes for either backend request.
-      const remaining = PROCESSING_READY_COMPLETE_MS - (Date.now() - startedAt)
-      if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
-
-      // Let the existing modal exit transition finish before revealing Step 2.
+      // Backend readiness controls the transition. The overlay never holds a
+      // completed upload just to finish a decorative animation.
       setOverlayClosing(true)
-      await new Promise(resolve => setTimeout(resolve, 300))
       setBatch(imported)
       setCompanyInfo({
         company: imported.company_details,
@@ -350,16 +357,13 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
       setOverlayClosing(false)
     }
   }
-  // Step 2 refresh recovery: only runs when the page mounted directly onto
-  // 'preview' (URL restored the screen, see the useState initializer above)
-  // with no in-memory batch yet -- i.e. a real reload, never the normal
-  // upload -> preview transition above, which already has `batch` set before
-  // it navigates. Route param first, stored last-batch id as the fallback
-  // (per spec: route param, then nav state, then stored current batch --
-  // there is no in-memory nav state to read after a real reload).
+  // Workflow refresh recovery: route param first, stored last-batch id as the
+  // fallback. The normal upload transition already has `batch` in memory;
+  // this effect only restores a direct preview/voucher/import URL after a
+  // reload, including the Step 6 data needed to avoid a false zero state.
   useEffect(() => {
-    if (screen !== 'preview' || batch?.id) return
-    const id = parsePreviewBatchIdFromPath(window.location.pathname) || readLastStoredBatchId()
+    if (batch?.id || screen === 'upload') return
+    const id = parseFlowBatchIdFromPath(window.location.pathname) || readLastStoredBatchId()
     if (!id) { resetWorkflow(); return }
     let cancelled = false
       ; (async () => {
@@ -383,7 +387,13 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
           resetWorkflow()
           return
         }
-        if (!cancelled) loadBatchPreview(id)
+        if (!cancelled && screen === 'preview') loadBatchPreview(id)
+        if (!cancelled && (screen === 'vouchers' || screen === 'import')) {
+          try {
+            const generated = await previewTallyVouchers(id)
+            if (!cancelled) { setVoucherResult(generated); setVouchersValidated((generated.summary?.eligible || 0) > 0) }
+          } catch { if (!cancelled) notify('Unable to restore generated vouchers.', 'error') }
+        }
       })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -553,11 +563,17 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
       setVoucherResult(result)
       setVouchersValidated((result.summary?.eligible || 0) > 0)
       notify((result.summary?.eligible || 0) > 0 ? 'Voucher preview validated.' : 'No eligible vouchers are available.', (result.summary?.eligible || 0) > 0 ? 'success' : 'error')
+      return true
     } catch (error) {
       notify(error.message || 'Unable to validate vouchers.', 'error')
+      return false
     } finally {
       setBusy('')
     }
+  }
+  const generateVouchersFromMasters = async () => {
+    if (!batch?.id) return
+    if (await loadVouchers()) go('vouchers')
   }
   // Step 6 import as a job: this only ever starts/attaches to a background
   // job and returns almost immediately -- the browser never holds one long
@@ -617,6 +633,7 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
       notify(error.message || 'Unable to import to Tally.', 'error')
     }
   }
+  const finishImport = () => resetWorkflow()
 
   // Pause only ever asks the backend to stop before the *next* voucher
   // (see tally/import_job.py's request_pause) -- it can never interrupt a
@@ -816,7 +833,7 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   return <AppShell user={user} activeStep={activeStep} stepNumber={showProfile ? null : stepNumber} stepLabel={showProfile ? 'My Profile' : stepLabel} stepSubtitle={stepSubtitle} batchId={batch?.id} reachableIndex={reachableIndex} onHome={onLogout} onNavigate={go} onLogout={onLogout} onProfile={() => setShowProfile(true)} profileActive={showProfile} canGoBack={showProfile || screen !== 'upload'} onBack={showProfile ? () => setShowProfile(false) : back} subscription={subscription}>
     {showProfile && <ProfileScreen />}
     {!showProfile && screen === 'upload' && <UploadScreen returnType={returnType} fileFormat={fileFormat} file={file} fileError={fileError} loading={busy === 'import-file'} phase={phase} processingStartedAt={processingStartedAt} processingBackendDone={processingBackendDone} overlayClosing={overlayClosing} processingError={processingError} onDismissProcessingError={() => setProcessingError('')} onReturnType={chooseReturnType} onFile={chooseFile} onImport={startImport} fileInputRef={fileInputRef} />}
-    {!showProfile && screen === 'preview' && <PreviewScreen preview={preview} batch={batch} tableLoading={previewLoading} tableProcessingStartedAt={previewProcessingStartedAt} tableError={previewError} onRetryPreview={() => batch?.id && loadBatchPreview(batch.id)} loading={busy === 'parties'} phase={phase} onProceed={proceedFromPreview} />}
+    {!showProfile && screen === 'preview' && <PreviewScreen preview={preview} batch={batch} tableLoading={previewLoading} tableProcessingStartedAt={previewProcessingStartedAt} tableError={previewError} onRetryPreview={() => batch?.id && loadBatchPreview(batch.id)} onLoadPage={options => batch?.id && loadBatchPreview(batch.id, options)} loading={busy === 'parties'} phase={phase} onProceed={proceedFromPreview} />}
     {!showProfile && screen === 'parties' && <PartyScreen
       loading={busy === 'parties'}
       prepState={prepState}
@@ -834,11 +851,11 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
       onRetrySandboxLookup={retrySandboxLookup}
       sandboxRetryBusy={sandboxRetryBusy}
     />}
-    {!showProfile && screen === 'masters' && <MastersScreen result={masterResult} loading={busy === 'masters'} onRefresh={refreshMastersStatus} onContinue={() => go('vouchers')} />}
+    {!showProfile && screen === 'masters' && <MastersScreen result={masterResult} loading={busy === 'masters'} onRefresh={refreshMastersStatus} onContinue={generateVouchersFromMasters} />}
     {!showProfile && screen === 'vouchers' && <VoucherScreen result={voucherResult} loading={busy === 'vouchers'} validated={vouchersValidated} batchId={batch?.id} reviewRow={reviewRow} onValidate={loadVouchers} onCorrected={correctVoucher} onReview={setReviewRow} onViewSkip={setSkipDetailRow} onContinue={() => go('import', null, { autoStartImport: true, fromVoucherPreview: true })} onRetrySandboxLookup={retrySandboxLookup} sandboxRetryBusy={sandboxRetryBusy} />}
     {skipDetailRow && <SkipReasonModal row={skipDetailRow} onClose={() => setSkipDetailRow(null)} />}
-    {!showProfile && screen === 'import' && <ImportScreen result={importResult} jobStatus={importJobStatus} pauseAction={pauseAction} voucherResult={voucherResult} connectionResult={connectionResult} companyResult={companyResult} licenseResult={licenseResult} masterResult={masterResult} loading={busy === 'tally-import'} autoStartImport={autoStartImport}
-      onImport={runImport} onPause={pauseImport} onResume={resumeImport} onViewError={setErrorDetail} onBackToVouchers={() => go('vouchers')}
+    {!showProfile && screen === 'import' && <Step6ImportScreen batch={batch} result={importResult} jobStatus={importJobStatus} pauseAction={pauseAction} voucherResult={voucherResult} connectionResult={connectionResult} companyResult={companyResult} licenseResult={licenseResult} masterResult={masterResult} loading={busy === 'tally-import'} autoStartImport={autoStartImport}
+      onImport={runImport} onPause={pauseImport} onResume={resumeImport} onViewError={setErrorDetail} onBackToVouchers={() => go('vouchers')} onFinish={finishImport}
       resultPopupOpen={resultPopupOpen} onDismissResultPopup={() => setResultPopupOpen(false)} />}
     <Toast toast={toast} onDismiss={() => setToast(null)} />
     <DuplicateFileToast
@@ -897,7 +914,7 @@ function ProcessingOverlay({ startedAt, backendDone, closing, error, onDismissEr
     if (!startedAt) return
     const update = () => setElapsed(Date.now() - startedAt)
     update()
-    const timer = window.setInterval(update, 120)
+    const timer = window.setInterval(update, 80)
     return () => window.clearInterval(timer)
   }, [startedAt])
 
@@ -954,7 +971,7 @@ function FileDrop({ file, fileFormat, returnType, disabled, error, onFile, input
   </label>
 }
 
-const PREVIEW_PAGE_SIZE = 10
+const PREVIEW_PAGE_SIZE = 50
 
 // Purely a rendering window over the same page numbers -- always includes the
 // first/last two pages plus a neighborhood around the current page, so every
@@ -974,45 +991,39 @@ function paginationWindow(current, total) {
   return windowed
 }
 
-function PreviewScreen({ preview, batch, tableLoading, tableProcessingStartedAt, tableError, onRetryPreview, loading, phase, onProceed }) {
+function PreviewScreen({ preview, batch, tableLoading, tableProcessingStartedAt, tableError, onRetryPreview, onLoadPage, loading, phase, onProceed }) {
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+  const searchTimer = useRef(null)
+  const hasLoadedInitialPage = useRef(false)
   const allRows = preview?.rows || []
-  // Local, instant filtering over the already-loaded rows -- no backend call
-  // per keystroke (see utils/previewFormat.js). Every displayed column is a
-  // real key on the row dict (services/source_preview.py builds rows from
-  // exactly the column list), so scanning covers every visible field.
-  const filteredRows = filterPreviewRows(allRows, search)
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PREVIEW_PAGE_SIZE))
+  const totalRows = preview?.row_count || 0
+  const totalPages = Math.max(1, preview?.total_pages || Math.ceil(totalRows / PREVIEW_PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
   const start = (currentPage - 1) * PREVIEW_PAGE_SIZE
-  const pageRows = filteredRows.slice(start, start + PREVIEW_PAGE_SIZE)
   const handleSearch = value => {
     setSearch(value)
-    setPage(1) // filtering the dataset always returns to page 1
+    setPage(1)
+    window.clearTimeout(searchTimer.current)
+    searchTimer.current = window.setTimeout(() => onLoadPage?.({ page: 1, pageSize: PREVIEW_PAGE_SIZE, search: value.trim() }), 180)
   }
+  useEffect(() => () => window.clearTimeout(searchTimer.current), [])
+  useEffect(() => {
+    if (!preview || !hasLoadedInitialPage.current) {
+      if (preview) hasLoadedInitialPage.current = true
+      return
+    }
+    if (page !== (preview.page || 1)) onLoadPage?.({ page, pageSize: PREVIEW_PAGE_SIZE, search })
+  }, [page, preview, search, onLoadPage])
   const fileName = preview?.file_name || batch?.file_name || ''
-  const returnLabel = preview?.return_type || batch?.return_type || ''
   return <section className="screen preview-screen">
     <header className="screen-title horizontal preview-header">
       <div className="preview-header-text">
         <h1>Step 2 — Invoice Preview</h1>
         <p className="preview-subtitle preview-page-subtitle">Review the imported invoice data before continuing.</p>
        </div>
-       <div className="preview-card-heading">
-        <h2>Invoice Preview</h2>
-        <p className="preview-subtitle preview-source-summary">
-          {returnLabel && <span className="preview-subtitle-segment">{returnTypeLabel(returnLabel)}</span>}
-          {returnLabel && <span className="preview-subtitle-sep" aria-hidden="true">•</span>}
-          <span className="preview-subtitle-segment"><span className="preview-format-check" aria-hidden="true">✓</span> {formatLabel(preview?.file_type || batch?.file_type || formatLabelFromName(fileName))}</span>
-          <span className="preview-subtitle-sep" aria-hidden="true">•</span>
-          <span className="preview-subtitle-segment">{allRows.length} {allRows.length === 1 ? 'invoice' : 'invoices'}</span>
-          <span className="preview-subtitle-sep" aria-hidden="true">•</span>
-          <span className="preview-subtitle-segment">Read-only Preview</span>
-        </p>
-      </div>
       <div className="preview-toolbar">
-        <FileDetailsButton preview={preview} batch={batch} recordCount={allRows.length} fileName={fileName} />
+        <FileDetailsButton preview={preview} batch={batch} recordCount={totalRows} fileName={fileName} />
         <label className="preview-search"><span className="preview-search-icon" aria-hidden="true">⌕</span><input type="search" value={search} onChange={event => handleSearch(event.target.value)} placeholder="Search invoices..." aria-label="Search preview rows" /></label>
         <DownloadButtons preview={preview} batch={batch} />
       </div>
@@ -1026,13 +1037,13 @@ function PreviewScreen({ preview, batch, tableLoading, tableProcessingStartedAt,
           : preview && allRows.length === 0 ? <div className="preview-state-message">
             <span>No invoice rows were found in this file.</span>
           </div>
-            : <ExcelPreviewGrid preview={preview ? { ...preview, rows: pageRows } : { columns: [], rows: [] }} />}
+            : <ExcelPreviewGrid preview={preview ? { ...preview, viewportHeight: 500 } : { columns: [], rows: [] }} />}
     </div>
     <div className="preview-bottom-row">
-      <div className="preview-bottom-status">{filteredRows.length > 0
-        ? <span>Showing {start + 1} to {Math.min(start + PREVIEW_PAGE_SIZE, filteredRows.length)} of {filteredRows.length}{search.trim() ? ` matching (of ${allRows.length})` : ''} invoices</span>
+      <div className="preview-bottom-status">{totalRows > 0
+        ? <span>Showing {start + 1} to {Math.min(start + PREVIEW_PAGE_SIZE, totalRows)} of {totalRows}{search.trim() ? ' matching invoices' : ' invoices'}</span>
         : search.trim() ? <span>No invoices match "{search.trim()}".</span> : null}</div>
-      <div className="pagination">{filteredRows.length > 0 && <>
+      <div className="pagination">{totalRows > 0 && <>
         <button disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>‹</button>
         {paginationWindow(currentPage, totalPages).map((item, index) => item === '...'
           ? <span key={`ellipsis-${index}`} className="pagination-ellipsis" aria-hidden="true">…</span>
@@ -1254,9 +1265,9 @@ function CurrentOperationCard({ entry, status }) {
 
 const MASTER_FILTER_TABS = [
   ['all', 'All'],
-  ['parties', 'Parties'],
-  ['accounts', 'Accounts'],
-  ['taxLedgers', 'Tax Ledgers'],
+  ['parties', 'Party Ledger'],
+  ['accounts', 'Accounts Ledger'],
+  ['taxLedgers', 'Tax Ledger'],
   ['otherLedgers', 'Other'],
 ]
 
@@ -1302,16 +1313,6 @@ function MastersScreen({ result, loading, onRefresh, onContinue }) {
     const timer = window.setTimeout(() => setSuccessToastVisible(false), 5000)
     return () => window.clearTimeout(timer)
   }, [allRequiredAlreadyAvailable])
-  console.log('MASTER STATUS RESPONSE:', result)
-  console.log('MASTER STATUS GATE', {
-    batchId: result?.batch_id,
-    partyTotal: summaries.find(item => item.key === 'parties')?.total,
-    accountTotal: summaries.find(item => item.key === 'accounts')?.total,
-    taxLedgerTotal: summaries.find(item => item.key === 'taxLedgers')?.total,
-    otherLedgerTotal: summaries.find(item => item.key === 'otherLedgers')?.total,
-    failedCount, masterRowsLength: masters.length, mastersReady: result?.ready, canContinue,
-    requiredCount, readyCount, createdCount,
-  })
   return <section className="screen masters-screen">
     <header className="screen-title horizontal masters-title">
       <div><h1>Tally Masters</h1><p>Statuses are shown only from backend master preparation results.</p></div>
@@ -1344,7 +1345,7 @@ function MastersScreen({ result, loading, onRefresh, onContinue }) {
     }} />
     <div className="masters-footer">
       <span className="masters-footer-count">{readyCount} master{readyCount === 1 ? '' : 's'} ready</span>
-      <LoadingButton disabled={!canContinue} onClick={onContinue}>Continue to Voucher Preview</LoadingButton>
+      <LoadingButton loading={loading} disabled={!canContinue || loading} onClick={onContinue}>Generate Vouchers</LoadingButton>
     </div>
     {blockingReason && <p className="import-block-reason">{blockingReason}</p>}
     {partyDetailRow && <PartyMasterDetailModal row={partyDetailRow} onClose={() => setPartyDetailRow(null)} />}
@@ -1429,6 +1430,18 @@ function MasterSummaryButton({ summaries, onFailedClick }) {
 const VOUCHER_STATUS_FILTERS = ['All', 'Ready', 'Needs Attention', 'Already Imported', 'Skipped']
 const VOUCHER_MISMATCH_STATUSES = ['Review Required', 'Validation Failed', 'Needs Attention']
 
+// Keep the UI vocabulary separate from provider/backend display text. Every
+// filter and count below uses this one normalized value derived from the real
+// voucher status returned by the backend.
+function normalizeVoucherStatus(row) {
+  const raw = String(row?.status || '').trim()
+  if (raw === 'Already Imported') return 'ALREADY_IMPORTED'
+  if (VOUCHER_MISMATCH_STATUSES.includes(raw)) return 'NEEDS_ATTENTION'
+  if (raw === 'Skipped' || raw === 'Invalid' || raw === 'Not Attempted' || raw.startsWith('Invalid ')) return 'SKIPPED'
+  if (raw.startsWith('Ready') && row?.import_eligible !== false) return 'READY'
+  return 'SKIPPED'
+}
+
 function roundOffSign(value) {
   const num = Number(value || 0)
   return num > 0 ? 'Positive' : num < 0 ? 'Negative' : 'Zero'
@@ -1442,8 +1455,7 @@ function VoucherScreen({ result, loading, validated, batchId, reviewRow, onValid
   const [viewRow, setViewRow] = useState(null)
   const [filter, setFilter] = useState('All')
   const [search, setSearch] = useState('')
-  const vouchers = (result?.vouchers || []).map(row => ({ ...row, invoice_date_iso: row.invoice_date, invoice_date: formatDate(row.invoice_date), voucher_date: formatDate(row.voucher_date || row.invoice_date) }))
-  const mismatchStatuses = VOUCHER_MISMATCH_STATUSES
+  const vouchers = (result?.vouchers || []).map(row => ({ ...row, voucher_status: normalizeVoucherStatus(row), invoice_date_iso: row.invoice_date, invoice_date: formatDate(row.invoice_date), voucher_date: formatDate(row.voucher_date || row.invoice_date) }))
   // Round Off summary (task spec's optional strip): counted independently of
   // the Ready/Needs Attention stats above, which must remain unchanged --
   // "attention" here means the invoice couldn't be treated as a normal
@@ -1455,10 +1467,12 @@ function VoucherScreen({ result, loading, validated, batchId, reviewRow, onValid
     const partyGstin = row.party_gstin || row.party?.gstin || ''
     return [row.invoice_number, partyName, partyGstin].some(value => String(value || '').toLowerCase().includes(searchNeedle))
   }
-  const filtered = vouchers.filter(row => (filter === 'All' || (filter === 'Needs Attention' ? mismatchStatuses.includes(row.status) : row.status === filter))
+  const filterStatus = { Ready: 'READY', 'Needs Attention': 'NEEDS_ATTENTION', 'Already Imported': 'ALREADY_IMPORTED', Skipped: 'SKIPPED' }[filter]
+  const filtered = vouchers.filter(row => (!filterStatus || row.voucher_status === filterStatus)
     && matchesSearch(row))
-  const ready = vouchers.filter(row => String(row.status || '').startsWith('Ready')).length
-  const mismatch = vouchers.filter(row => mismatchStatuses.includes(row.status)).length
+  const statusCounts = vouchers.reduce((counts, row) => { counts[row.voucher_status] += 1; return counts }, { READY: 0, NEEDS_ATTENTION: 0, ALREADY_IMPORTED: 0, SKIPPED: 0 })
+  const ready = statusCounts.READY
+  const mismatch = statusCounts.NEEDS_ATTENTION
   // Any voucher still carrying a Sandbox enrichment warning means at least
   // one party in this batch is on the GSTIN-fallback path -- surfaced here,
   // where the user is actually looking at "Ready with GSTIN Fallback", with
@@ -1480,17 +1494,19 @@ function VoucherScreen({ result, loading, validated, batchId, reviewRow, onValid
         </div>}
         <label className="voucher-search"><span className="voucher-search-icon" aria-hidden="true">⌕</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search invoice / party / GSTIN..." aria-label="Search vouchers" /></label>
         {vouchers.length > 0 && <VoucherSummaryButton counts={{ total: vouchers.length, ready, attention: mismatch, eligible: result?.summary?.eligible || 0, alreadyImported: result?.summary?.already_imported || 0 }} />}
-        <VoucherValidateButton loading={loading} hasResult={Boolean(result)} validated={validated} onClick={onValidate} />
       </div>
     </header>
     <div className="voucher-toolbar">
       <div className="voucher-toolbar-left">
-        <div className="filter-tabs voucher-filter-tabs">{VOUCHER_STATUS_FILTERS.map(item => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>)}</div>
+        <div className="filter-tabs voucher-filter-tabs">{VOUCHER_STATUS_FILTERS.map(item => {
+          const count = item === 'All' ? vouchers.length : statusCounts[{ Ready: 'READY', 'Needs Attention': 'NEEDS_ATTENTION', 'Already Imported': 'ALREADY_IMPORTED', Skipped: 'SKIPPED' }[item]]
+          return <button key={item} type="button" className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item} ({count})</button>
+        })}</div>
       </div>
     </div>
     <div className="voucher-table-area">
       {loading && !result ? <TableSkeleton cols={14} /> : <DataTable columns={['Invoice', 'Invoice Date', 'Voucher Date', 'Party', 'GSTIN', 'Taxable', 'CGST', 'SGST', 'IGST', 'Component Total', 'Round Off', 'Final Total', 'Status', 'Action']} rows={filtered} empty="No vouchers match this filter." render={(row, index) => {
-        const mismatchRow = mismatchStatuses.includes(row.status)
+        const mismatchRow = row.voucher_status === 'NEEDS_ATTENTION'
         const partyName = row.party_name || row.party?.name || row.party?.trade_name || row.party?.legal_name || row.party_gstin || row.party?.gstin || '-'
         const partyGstin = row.party_gstin || row.party?.gstin || '-'
         const items = row.items || []
@@ -1498,20 +1514,20 @@ function VoucherScreen({ result, loading, validated, batchId, reviewRow, onValid
           const isLastItem = itemIndex === items.length - 1
           const itemComponentTotal = ['taxable_value', 'cgst', 'sgst', 'igst', 'cess']
             .reduce((total, field) => total + Number(item[field] || 0), 0)
-          return <tr key={`${row.invoice_number}-${index}-item-${itemIndex}`} className={`voucher-item-row${isLastItem ? ' invoice-last-item' : ''}`}>
+          return <tr key={`${row.invoice_number}-${index}-item-${itemIndex}`} className={`voucher-item-row voucher-status-${row.voucher_status.toLowerCase()}${isLastItem ? ' invoice-last-item' : ''}`}>
           <td>{row.invoice_number || '-'}</td><td>{row.invoice_date || '-'}</td><td>{row.voucher_date || row.invoice_date || '-'}</td><td className="voucher-party-cell" title={partyName}>{partyName}</td><td>{partyGstin}</td>
           <td className="voucher-num">{money(item.taxable_value)}</td><td className="voucher-num">{money(item.cgst)}</td><td className="voucher-num">{money(item.sgst)}</td><td className="voucher-num">{money(item.igst)}</td>
           <td className="voucher-num">{money(itemComponentTotal)}</td>
           {isLastItem ? <><td className={`voucher-num voucher-round-off voucher-round-off-${roundOffSign(row.round_off).toLowerCase()}`}>{signedMoney(row.round_off)}</td><td className="voucher-num voucher-final-total">{money(row.final_voucher_total)}</td>
-            <td><StatusBadge value={mismatchRow ? 'Needs Attention' : row.status || 'Invalid'} /></td><td><button className="icon-link voucher-view-btn" onClick={() => mismatchRow ? onReview(row) : row.status === 'Already Imported' ? onViewSkip(row) : setViewRow(row)}>{mismatchRow ? <>⚠ Fix</> : row.status === 'Already Imported' ? <>&#8635; Duplicate</> : <><EyeIcon /> View</>}</button></td></>
+            <td><StatusBadge value={mismatchRow ? 'Needs Attention' : row.status || 'Invalid'} />{row.voucher_status === 'SKIPPED' && row.reason && <small className="voucher-status-reason">{row.reason}</small>}</td><td><button className="icon-link voucher-view-btn" onClick={() => mismatchRow ? onReview(row) : row.voucher_status === 'ALREADY_IMPORTED' ? onViewSkip(row) : setViewRow(row)}>{mismatchRow ? <>⚠ Fix</> : row.voucher_status === 'ALREADY_IMPORTED' ? <>&#8635; Duplicate</> : <><EyeIcon /> View</>}</button></td></>
             : <><td /><td /><td /><td /></>}
         </tr>
         })
       }} />}
     </div>
     <div className="voucher-footer">
-      <span className="voucher-footer-text"><strong>{ready}</strong> voucher{ready === 1 ? '' : 's'} ready for import{mismatch > 0 ? <small> · {mismatch} voucher{mismatch === 1 ? '' : 's'} need attention</small> : null}</span>
-      <LoadingButton disabled={!validated} onClick={onContinue}>Continue to Import</LoadingButton>
+      <span className="voucher-footer-text"><strong>{ready}</strong> voucher{ready === 1 ? '' : 's'} ready for import · {mismatch} need attention · {statusCounts.ALREADY_IMPORTED} already imported · {statusCounts.SKIPPED} skipped</span>
+      <LoadingButton disabled={!validated || ready === 0} onClick={onContinue}>Continue to Import</LoadingButton>
     </div>
     {reviewRow && <VoucherMismatchModal row={reviewRow} batchId={batchId} onClose={() => onReview(null)} onSaved={onCorrected} />}
     {viewRow && <CompactInvoiceViewModal row={viewRow} onClose={() => setViewRow(null)} />}
@@ -1646,7 +1662,160 @@ function canImportToTally({ voucherResult, masterResult, licenseResult }) {
 // status here is read from real props (voucherResult/connectionResult/
 // companyResult/masterResult/licenseResult/result); none of the underlying
 // eligibility, master, connection, or import logic is touched.
-function ImportScreen({ result, jobStatus, pauseAction, voucherResult, connectionResult, companyResult, licenseResult, masterResult, loading, autoStartImport, onImport, onPause, onResume, onViewError, onBackToVouchers, resultPopupOpen, onDismissResultPopup }) {
+function Step6ImportScreen({ batch, result, jobStatus, pauseAction, voucherResult, loading, onImport, onPause, onResume, onViewError, onBackToVouchers, onFinish }) {
+  const [detailStatus, setDetailStatus] = useState('')
+  // A completed run with rejected vouchers should immediately expose the
+  // inline explanation table, matching the normal operator workflow. Users
+  // can still collapse it with the section header.
+  useEffect(() => {
+    const summary = result?.summary || {}
+    const rejected = Number(summary.failed || 0) + Number(summary.skipped || 0)
+      + Number(summary.unknown || 0) + Number(summary.not_attempted || 0)
+      + Number(summary.waiting_for_tally_period || 0)
+    if (!result) return
+    if (rejected > 0) setDetailStatus('not_imported')
+    else if (Number(summary.imported || 0) > 0) setDetailStatus('imported')
+    else if (Number(summary.already_imported || 0) > 0) setDetailStatus('already_imported')
+    else if (Number(summary.remaining || 0) > 0) setDetailStatus('remaining')
+  }, [result])
+  const dataReady = Boolean(batch?.id && (voucherResult || jobStatus || result))
+  if (!dataReady) {
+    return <section className="screen step6-screen step6-loading-screen">
+      <div className="step6-shell step6-loading-shell" role="status" aria-live="polite">
+        <div className="step6-loading-content"><span className="step6-loading-spinner" aria-hidden="true" /><strong>Loading import data…</strong><span>Preparing the file summary and live Tally status.</span></div>
+      </div>
+    </section>
+  }
+  const summary = result?.summary || voucherResult?.summary || {}
+  const total = Number(summary.total ?? result?.total_parsed_invoices ?? jobStatus?.total ?? 0)
+  const imported = Number(result?.summary?.imported ?? jobStatus?.imported ?? 0)
+  const alreadyImported = Number(result?.summary?.already_imported ?? 0)
+  // These are all terminal, non-imported outcomes. Keep them together so
+  // the four cards always reconcile with the real source-record total.
+  const failed = Number(result?.summary?.failed ?? jobStatus?.failed ?? 0)
+  const skipped = Number(result?.summary?.skipped ?? jobStatus?.skipped ?? 0)
+    + Number(result?.summary?.validation_failed ?? result?.summary?.invalid ?? 0)
+  const unresolved = Number(result?.summary?.unknown ?? 0)
+    + Number(result?.summary?.not_attempted ?? 0)
+    + Number(result?.summary?.waiting_for_tally_period ?? 0)
+  const notImported = failed + skipped + unresolved
+  const pending = Number(result?.summary?.pending_verification ?? result?.summary?.verification_pending ?? jobStatus?.verification_pending ?? 0)
+  const processed = result ? Math.min(total, imported + alreadyImported + notImported + pending) : Math.min(total, Number(jobStatus?.processed || 0))
+  const remaining = Math.max(0, total - processed)
+  const percent = total ? Math.min(100, (processed / total) * 100) : 0
+  const active = ['PENDING', 'RUNNING', 'VERIFYING', 'PAUSED'].includes(jobStatus?.status)
+  const completedWithErrors = Boolean(result && (notImported > 0 || pending > 0))
+  const title = !result ? 'Importing to Tally' : completedWithErrors ? 'Import Completed with Errors' : 'Import Completed'
+  const elapsed = useElapsedSeconds(jobStatus?.started_at, active)
+  const batchSize = DISPLAY_BATCH_SIZE
+  const batchCount = total ? Math.max(1, Math.ceil(total / batchSize)) : 0
+  const currentBatch = total ? Math.min(batchCount, Math.max(1, Math.ceil(Math.max(processed, 1) / batchSize))) : 0
+  const fileName = batch?.file_name || 'Uploaded file'
+  const fileType = batch?.file_type || String(fileName).split('.').pop()?.toUpperCase() || 'File'
+  const uploadedAt = batch?.uploaded_at ? new Date(batch.uploaded_at).toLocaleString() : ''
+  const rows = result?.results || []
+  const retryableNotImported = rows.some(row => {
+    if (['Imported', 'Already Imported'].includes(row.status)) return false
+    if (row.user_error?.retryable === false) return false
+    return row.user_error?.retryable === true || [
+      'Master Setup Failed', 'Preflight Failed', 'Tally Failed',
+      'Verification Failed', 'Unknown / Verify', 'Unknown / Verify Before Retry',
+      'Not Attempted',
+    ].includes(row.status)
+  })
+  const detailRows = detailStatus === 'imported'
+    ? rows.filter(row => row.status === 'Imported')
+    : detailStatus === 'already_imported'
+      ? rows.filter(row => row.status === 'Already Imported')
+      : detailStatus === 'remaining'
+        ? rows.filter(row => ['Pending', 'Not Attempted', 'Review Required', 'Validation Failed'].includes(row.status))
+      : rows.filter(row => !['Imported', 'Already Imported'].includes(row.status))
+  const detailCount = status => ({ imported, already_imported: alreadyImported, not_imported: notImported, remaining }[status] || 0)
+  const toggleDetails = status => setDetailStatus(status)
+  const reasonFor = row => {
+    // The import service preserves technical detail for the report, but also
+    // supplies this normalized operator-safe explanation for the UI.
+    const userError = row.user_error || {}
+    if (userError.user_message) {
+      return [userError.user_message, userError.action_message].filter(Boolean).join(' ')
+    }
+    const raw = String(row.reason || row.error_message || row.message || '').trim()
+    if (!raw || ['Import failed', 'Validation error', 'Unknown error', 'Tally rejected voucher'].includes(raw)) {
+      return 'Tally did not provide a specific rejection reason. Verify the voucher and required ledgers, then retry.'
+    }
+    if (/CREATION_LEDGER_NOT_FOUND/i.test(raw)) return `Party ledger '${row.party || row.party_name || 'for this voucher'}' does not exist in Tally. Create or prepare this ledger and retry.`
+    if (/GST.*invalid|INVALID_GSTIN/i.test(raw)) return `GSTIN ${row.gstin || row.party_gstin || ''} is invalid. Correct the GSTIN in the source invoice and retry.`
+    if (/total.*mismatch|mismatch.*total/i.test(raw)) return raw.replace(/\s+/g, ' ').trim().replace(/\.?$/, '.').replace(/\.\.$/, '.') + ' Check taxable value, tax amounts and invoice value.'
+    if (/already exists|duplicate/i.test(raw)) return `Voucher ${row.invoice_no || row.invoice_number || ''} already exists in this Tally company. It was not imported again.`
+    return raw
+  }
+  return <section className="screen step6-screen">
+    <div className="step6-shell">
+      <div className="step6-columns">
+        <aside className="step6-file-card">
+          <div className="step6-file-icon">{fileType === 'CSV' ? 'CSV' : fileType === 'JSON' ? '{}' : 'X'}</div>
+          <h2 title={fileName}>{fileName}</h2>
+          {uploadedAt && <p>Uploaded on {uploadedAt}</p>}
+          <div className="step6-file-rule" />
+          <span className="step6-file-label">Total Records</span>
+          <strong className="step6-file-total">{fmtNum(total)}</strong>
+          <span className="step6-file-type">{fileType === 'XLSX' || fileType === 'XLS' ? 'Excel' : fileType}</span>
+        </aside>
+        <main className="step6-center-card">
+          <h2>{title}</h2>
+          {!result && <p>Please wait while vouchers are being imported...</p>}
+          {result && <p>{completedWithErrors ? 'Some vouchers require attention.' : 'All vouchers were acknowledged by Tally.'}</p>}
+          <ImportTransfer3D headline="" subline="" status={result ? (completedWithErrors ? 'PARTIAL' : 'COMPLETED') : 'ACTIVE'} />
+          <div className="step6-progress-copy"><strong>{fmtNum(processed)} of {fmtNum(total)} processed</strong><strong>{percent.toFixed(0)}%</strong></div>
+          <div className="step6-progress-bar"><span style={{ width: `${percent}%` }} /></div>
+          <p className="step6-progress-meta">Batch {currentBatch} of {batchCount || 1} <span>•</span> Elapsed time: {formatDuration(elapsed)}</p>
+        </main>
+        <aside className="step6-status-grid">
+          <button type="button" className={`step6-status-card imported${detailStatus === 'imported' ? ' is-selected' : ''}`} onClick={() => toggleDetails('imported')}><span>✓</span><small>IMPORTED</small><strong>{fmtNum(imported)}</strong></button>
+          <button type="button" className={`step6-status-card already${detailStatus === 'already_imported' ? ' is-selected' : ''}`} onClick={() => toggleDetails('already_imported')}><span>+</span><small>ALREADY IMPORTED</small><strong>{fmtNum(alreadyImported)}</strong></button>
+          <button type="button" className={`step6-status-card failed${detailStatus === 'not_imported' ? ' is-selected' : ''}`} onClick={() => toggleDetails('not_imported')}><span>!</span><small>NOT IMPORTED</small><strong>{fmtNum(notImported)}</strong></button>
+          <button type="button" className={`step6-status-card remaining${detailStatus === 'remaining' ? ' is-selected' : ''}`} onClick={() => toggleDetails('remaining')} aria-label="View remaining vouchers"><span>□</span><small>REMAINING</small><strong>{fmtNum(remaining)}</strong></button>
+        </aside>
+      </div>
+      {detailStatus && <Step6StatusPanel status={detailStatus} count={detailCount(detailStatus)} rows={detailRows} reasonFor={reasonFor} onClose={() => setDetailStatus('')} />}
+      <footer className="step6-footer">
+        <nav className="step6-actions">
+          <button type="button" className="step6-secondary" onClick={onBackToVouchers}>Back to Voucher Preview</button>
+          <button type="button" className="step6-secondary" onClick={() => downloadImportReport(jobStatus, result)}>Download Report</button>
+          {retryableNotImported && <button type="button" className="step6-secondary" onClick={onImport} disabled={loading || active}>Retry Import</button>}
+          {result && <button type="button" className="step6-primary" onClick={onFinish}>Finish</button>}
+        </nav>
+      </footer>
+    </div>
+  </section>
+}
+
+function Step6StatusPanel({ status, count, rows, reasonFor, onClose }) {
+  const title = { imported: 'Imported Vouchers', already_imported: 'Already Imported Vouchers', not_imported: 'Not Imported Vouchers', remaining: 'Remaining Vouchers' }[status]
+  const copy = status === 'not_imported'
+    ? 'These vouchers could not be imported to Tally. Check the reason for each voucher and correct the data if required.'
+    : status === 'imported' ? 'Successfully imported to Tally.'
+      : status === 'already_imported' ? 'These vouchers were already available in the verified Tally company and were not imported again.'
+        : 'These vouchers are pending processing.'
+  const emptyCopy = `No ${status === 'already_imported' ? 'already imported' : status === 'not_imported' ? 'not imported' : status} vouchers in this batch.`
+  return <section className={`step6-detail-panel step6-status-panel step6-status-panel-${status}${count > 0 ? ' has-records' : ''}`}>
+    <div className="step6-detail-heading"><span><strong>{status === 'not_imported' ? '❗ ' : status === 'imported' ? '✓ ' : ''}{title} ({fmtNum(count)})</strong></span><button type="button" onClick={onClose}>Close</button></div>
+    <p className="step6-status-panel-copy">{count > 0 ? copy : emptyCopy}</p>
+    {count > 0 && <Step6DetailsTable rows={rows} reasonFor={reasonFor} includeReason={status !== 'imported'} />}
+  </section>
+}
+
+function Step6DetailsTable({ rows, reasonFor, includeReason = true }) {
+  return <div className="step6-inline-table-wrap"><table className="step6-inline-table"><thead><tr><th>Voucher / Invoice No</th><th>Voucher Date</th><th>GSTIN</th><th>Amount</th><th>Status</th>{includeReason && <th>Reason</th>}</tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.invoice_no || row.invoice_number}-${index}`}><td>{row.invoice_no || row.invoice_number || '-'}</td><td>{row.voucher_date || row.date || '-'}</td><td>{row.gstin || row.party_gstin || '-'}</td><td>{row.final_total || row.final_voucher_total || row.invoice_total || row.amount || '-'}</td><td><StatusBadge value={row.status || '-'} /></td>{includeReason && <td>{reasonFor(row)}</td>}</tr>)}</tbody></table></div>
+}
+
+function Step6ResultModal({ status, rows, onClose, onViewError }) {
+  const title = status === 'imported' ? 'Imported Vouchers' : status === 'already_imported' ? 'Already Imported Vouchers' : 'Not Imported Vouchers'
+  const reasonFor = row => row.reason || row.error_message || (status === 'not_imported' ? 'Tally did not provide a specific reason.' : '-')
+  return <div className="modal-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}><div className="modal step6-result-modal" role="dialog" aria-modal="true"><div className="modal-head"><h2>{title}</h2><button type="button" onClick={onClose} aria-label="Close">×</button></div><DataTable columns={['Invoice No', 'GSTIN', 'Party', 'Voucher Date', 'Amount', 'Status', 'Reason']} rows={rows} empty="No vouchers in this status." render={(row, index) => <tr key={`${row.invoice_no || row.invoice_number}-${index}`}><td>{row.invoice_no || row.invoice_number || '-'}</td><td>{row.gstin || row.party_gstin || '-'}</td><td>{row.party || row.party_name || '-'}</td><td>{row.voucher_date || row.date || '-'}</td><td>{row.final_total || row.final_voucher_total || row.invoice_total || row.amount || '-'}</td><td><StatusBadge value={row.status || '-'} /></td><td>{reasonFor(row)}</td></tr>} /></div></div>
+}
+
+function ImportScreen({ result, jobStatus, pauseAction, voucherResult, connectionResult, companyResult, licenseResult, masterResult, loading, autoStartImport, onImport, onPause, onResume, onViewError, onBackToVouchers, onFinish, resultPopupOpen, onDismissResultPopup }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [showResultsModal, setShowResultsModal] = useState(false)
   const [showSummaryPopup, setShowSummaryPopup] = useState(false)
@@ -1726,6 +1895,7 @@ function ImportScreen({ result, jobStatus, pauseAction, voucherResult, connectio
   const displayedImported = hasResult ? imported : Number(jobStatus?.imported || 0)
   const displayedFailed = hasResult ? failedCount : Number(jobStatus?.failed || 0)
   const displayedSkipped = hasResult ? skippedCount : Number(jobStatus?.skipped || 0)
+  const displayedNotImported = displayedFailed + displayedSkipped
   const displayedRemaining = hasResult ? remaining : Math.max(0, readyCount - processed)
   const elapsedSeconds = useElapsedSeconds(jobStatus?.started_at, ACTIVE_JOB_STATUS_SET.has(jobStatus?.status || 'PENDING'))
   const speed = elapsedSeconds > 0 ? processed / elapsedSeconds : 0
@@ -1734,7 +1904,7 @@ function ImportScreen({ result, jobStatus, pauseAction, voucherResult, connectio
   const rowsForStatus = status => resultRows.filter(row => {
     if (status === 'imported') return row.status === 'Imported'
     if (status === 'already_imported') return row.status === 'Already Imported'
-    if (status === 'not_imported') return !['Imported', 'Already Imported', 'Skipped', 'Needs Attention'].includes(row.status)
+    if (status === 'not_imported') return !['Imported', 'Already Imported'].includes(row.status)
     if (status === 'skipped') return ['Skipped', 'Needs Attention'].includes(row.status)
     if (status === 'remaining') return ['Not Attempted', 'Review Required', 'Validation Failed'].includes(row.status)
     return true
@@ -1742,7 +1912,7 @@ function ImportScreen({ result, jobStatus, pauseAction, voucherResult, connectio
   const statusDetails = {
     imported: { title: 'Imported', text: `${fmtNum(newlyImported)} voucher${newlyImported === 1 ? '' : 's'} imported successfully to Tally.`, action: 'View Imported Data' },
     already_imported: { title: 'Already Processed', text: `${fmtNum(alreadyImported)} voucher${alreadyImported === 1 ? ' was' : 's were'} previously imported and not sent to Tally again.`, action: 'View Already Imported Data' },
-    not_imported: { title: 'Not Imported', text: `${fmtNum(displayedFailed)} voucher${displayedFailed === 1 ? ' could' : 's could'} not be imported.`, action: 'View Not Imported Data' },
+    not_imported: { title: 'Not Imported', text: `${fmtNum(displayedNotImported)} voucher${displayedNotImported === 1 ? ' was' : 's were'} not sent to Tally.`, action: 'View Not Imported Data' },
     skipped: { title: 'Skipped Records', text: `${fmtNum(displayedSkipped)} voucher${displayedSkipped === 1 ? ' was' : 's were'} intentionally excluded from this import.`, action: 'View Skipped Data' },
     remaining: { title: 'Remaining', text: `${fmtNum(displayedRemaining)} valid voucher${displayedRemaining === 1 ? ' is' : 's are'} waiting to be sent to Tally.`, action: 'View Remaining Data' },
   }
@@ -1884,13 +2054,8 @@ function ImportScreen({ result, jobStatus, pauseAction, voucherResult, connectio
                     </button>
                     <button type="button" className="stat-box failed is-clickable" onClick={() => openStatusDetails('not_imported')} aria-label="View not imported vouchers">
                       <span className="stat-icon" aria-hidden="true">!</span>
-                      <span className="stat-number">{fmtNum(displayedFailed)}</span>
+                      <span className="stat-number">{fmtNum(displayedNotImported)}</span>
                       <span className="stat-label">Not Imported</span>
-                    </button>
-                    <button type="button" className="stat-box skipped is-clickable" onClick={() => openStatusDetails('skipped')} aria-label="View skipped vouchers">
-                      <span className="stat-icon" aria-hidden="true">−</span>
-                      <span className="stat-number">{fmtNum(displayedSkipped)}</span>
-                      <span className="stat-label">Skipped</span>
                     </button>
                     <button type="button" className="stat-box remaining is-clickable" onClick={() => openStatusDetails('remaining')} aria-label="View remaining vouchers">
                       <span className="stat-icon" aria-hidden="true">▤</span>
@@ -2085,6 +2250,7 @@ function ImportScreen({ result, jobStatus, pauseAction, voucherResult, connectio
                     </button>
                   </>
                 )}
+                {hasResult && !isConnectionLost && !isPending && <button type="button" className="import-cta-btn" onClick={onFinish}>Finish</button>}
               </div>
             </div>
           ) : jobStatus ? (
@@ -2213,6 +2379,14 @@ function ProgressRing({ percent }) {
 function downloadImportReport(jobStatus, result) {
   const status = jobStatus?.status || 'PENDING'
   const rows = [
+    ['Invoice No', 'GSTIN', 'Party', 'Voucher Date', 'Taxable Value', 'Tax', 'Final Total', 'Status', 'Reason', 'Imported Timestamp'],
+    ...(result?.results || []).map(item => [
+      item.invoice_no || item.invoice_number || '', item.gstin || item.party_gstin || '', item.party || item.party_name || '',
+      item.voucher_date || item.date || '', item.taxable_value || '', item.tax || item.component_total || '',
+      item.final_total || item.final_voucher_total || '',
+      item.status === 'Imported' ? 'IMPORTED' : item.status === 'Already Imported' ? 'ALREADY_IMPORTED' : 'NOT_IMPORTED',
+      item.reason || item.error_message || '', item.imported_at || '',
+    ]),
     ['Job ID', jobStatus?.job_id || ''],
     ['Batch ID', jobStatus?.batch_id || ''],
     ['Status', status],

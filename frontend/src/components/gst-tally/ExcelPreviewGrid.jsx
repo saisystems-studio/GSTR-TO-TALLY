@@ -1,3 +1,4 @@
+import { memo, useMemo, useState } from 'react'
 import { formatDate } from '../../utils/date'
 import { displayValue, formattedPreviewValue } from '../../utils/previewFormat'
 
@@ -9,6 +10,7 @@ import { displayValue, formattedPreviewValue } from '../../utils/previewFormat'
 // column order is never taken from Object.keys(row).
 const CANONICAL_COLUMNS = [
   'Invoice Date',
+  'Voucher Date',
   'Customer GSTIN',
   'Invoice No',
   'Taxable Value',
@@ -56,16 +58,33 @@ function alignmentClass(format) {
   return undefined
 }
 
-export default function ExcelPreviewGrid({ preview }) {
-  const columns = orderedColumns(preview.columns || [])
+const ROW_HEIGHT = 39
+const HEADER_HEIGHT = 38
+const OVERSCAN_ROWS = 4
+
+function ExcelPreviewGrid({ preview }) {
+  const columns = useMemo(() => orderedColumns(preview.columns || []), [preview.columns])
   const rows = preview.rows || []
+  const [scrollTop, setScrollTop] = useState(0)
+  const viewportHeight = preview.viewportHeight || 500
+  const visibleStart = Math.max(0, Math.floor(Math.max(0, scrollTop - HEADER_HEIGHT) / ROW_HEIGHT) - OVERSCAN_ROWS)
+  const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + OVERSCAN_ROWS * 2
+  const visibleRows = rows.slice(visibleStart, visibleStart + visibleCount)
+  const topSpacer = visibleStart * ROW_HEIGHT
+  const bottomSpacer = Math.max(0, (rows.length - visibleStart - visibleRows.length) * ROW_HEIGHT)
   const gridClass = preview.return_type === 'GSTR1' ? ' gstr1-preview-grid' : preview.return_type === 'GSTR2A' ? ' gstr2a-preview-grid' : preview.return_type === 'GSTR2B' ? ' gstr2b-preview-grid' : ''
-  return <div className="source-grid-wrap excel-preview preview-table-wrapper" aria-label="Read-only spreadsheet preview">
+  return <div className="source-grid-wrap excel-preview preview-table-wrapper" aria-label="Read-only spreadsheet preview" onScroll={event => setScrollTop(event.currentTarget.scrollTop)}>
     <table className={`source-grid preview-table${gridClass}`}>
       <thead><tr className="preview-column-header">{columns.map(column => <th className={alignmentClass(column.format)} key={column.key}>{column.label}</th>)}</tr></thead>
       <tbody>{rows.length === 0
         ? <tr><td className="empty" colSpan={columns.length}>No records available.</td></tr>
-        : rows.map((row, rowIndex) => <tr key={rowIndex}>{columns.map(column => <td className={alignmentClass(column.format)} key={column.key}>{formattedValue(row[column.key], column.format)}</td>)}</tr>)}</tbody>
+        : <>
+          <tr className="preview-virtual-spacer" aria-hidden="true"><td colSpan={columns.length} style={{ height: topSpacer, padding: 0 }} /></tr>
+          {visibleRows.map((row, index) => <tr key={visibleStart + index} className={row._preview_status === 'ALREADY_IMPORTED' || row._preview_status === 'NOT_ELIGIBLE' ? 'preview-row-not-importable' : ''}>{columns.map(column => <td className={alignmentClass(column.format)} key={column.key}>{formattedValue(row[column.key], column.format)}</td>)}</tr>)}
+          <tr className="preview-virtual-spacer" aria-hidden="true"><td colSpan={columns.length} style={{ height: bottomSpacer, padding: 0 }} /></tr>
+        </>}</tbody>
     </table>
   </div>
 }
+
+export default memo(ExcelPreviewGrid)

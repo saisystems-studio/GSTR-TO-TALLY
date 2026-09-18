@@ -1,20 +1,18 @@
-// Visual pacing only -- roughly a 5s sequence when the backend finishes
-// promptly. None of these thresholds ever fake success: getProcessingStage
-// only ever returns the 'ready' stage when the caller passes a true
-// backendComplete, and the visual simply holds on the 'table' stage for as
-// long as it takes for that to happen (see the ready-stage check below).
+// Visual pacing only. It never delays the workflow: a true backend result
+// immediately moves to the ready state, while a slower request advances
+// through these short neutral stages.
 export const PROCESSING_STAGES = [
   { key: 'received', title: 'Data Received', subtitle: 'Preparing your data', at: 0 },
-  { key: 'processing', title: 'Processing Data', subtitle: 'Reading and organizing records', at: 800 },
-  { key: 'transferring', title: 'Structuring Records', subtitle: 'Arranging fields and values', at: 2000 },
-  { key: 'table', title: 'Preparing Table', subtitle: 'Building the preview grid', at: 3100 },
-  { key: 'ready', title: 'Ready to Display', subtitle: 'Your preview is ready', at: 4400 },
+  { key: 'processing', title: 'Processing Data', subtitle: 'Reading and organizing records', at: 250 },
+  { key: 'transferring', title: 'Structuring Records', subtitle: 'Arranging fields and values', at: 600 },
+  { key: 'table', title: 'Preparing Table', subtitle: 'Building the preview grid', at: 950 },
+  { key: 'ready', title: 'Ready to Display', subtitle: 'Your preview is ready', at: 1200 },
 ]
 
-export const PROCESSING_READY_COMPLETE_MS = 5000
+export const PROCESSING_READY_COMPLETE_MS = 1200
 
 export function getProcessingStage(elapsedMs = 0, backendComplete = false) {
-  if (backendComplete && elapsedMs >= PROCESSING_STAGES[4].at) return PROCESSING_STAGES[4]
+  if (backendComplete) return PROCESSING_STAGES[4]
   if (elapsedMs >= PROCESSING_STAGES[3].at) return PROCESSING_STAGES[3]
   if (elapsedMs >= PROCESSING_STAGES[2].at) return PROCESSING_STAGES[2]
   if (elapsedMs >= PROCESSING_STAGES[1].at) return PROCESSING_STAGES[1]
@@ -31,5 +29,5 @@ export function getProcessingVisualMode(elapsedMs = 0, backendComplete = false) 
 }
 
 export function isProcessingComplete(elapsedMs = 0, backendComplete = false) {
-  return Boolean(backendComplete && elapsedMs >= PROCESSING_READY_COMPLETE_MS)
+  return Boolean(backendComplete)
 }

@@ -62,7 +62,6 @@ export default function Settings() {
             ['support_email', 'Support Email', 'email'],
             ['support_phone', 'Support Phone', 'text'],
             ['default_validity_days', 'Default Validity Days', 'number'],
-            ['default_device_limit', 'Default Device Limit', 'number'],
             ['expiry_warning_days', 'Expiry Warning Days', 'number'],
             ['current_app_version', 'Current EXE/App Version', 'text'],
           ].map(([key, label, type]) => (

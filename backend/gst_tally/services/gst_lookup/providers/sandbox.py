@@ -185,6 +185,7 @@ class SandboxGSTProvider(GSTLookupProvider):
         self.last_provider_code, self.last_provider_message = None, None
         self.last_provider_transaction_id, self.last_response_shape = None, None
         self.last_request_metadata = {}
+        self.last_token_refreshed = False
 
     @staticmethod
     def config_for_credentials(configured=None):
@@ -193,9 +194,20 @@ class SandboxGSTProvider(GSTLookupProvider):
             "api_key": settings.SANDBOX_API_KEY, "api_secret": settings.SANDBOX_API_SECRET,
             "api_version": settings.SANDBOX_API_VERSION,
         }
-        base_url = ({"test": "https://test-api.sandbox.co.in", "production": "https://api.sandbox.co.in"}
-                    .get(credentials.get("environment"), settings.SANDBOX_BASE_URL))
-        return {"base_url": base_url, **credentials, "timeout": settings.GST_LOOKUP_TIMEOUT,
+        environment = str(credentials.get("environment") or "test").strip().lower()
+        from superadmin.services.sandbox_configuration import get_sandbox_config
+        base_url = get_sandbox_config(environment, credentials.get("api_version", "1.0.0"))["lookup_base_url"]
+        # Explicitly constructed provider test doubles may supply a base URL
+        # without an environment label; preserve that isolated URL. Runtime
+        # configurations always include environment and therefore use the
+        # strict mapping above.
+        if configured is not None and "environment" not in configured and configured.get("base_url"):
+            base_url = configured.get("base_url")
+        # The selected environment is authoritative. Never fall back to a
+        # global/base URL setting that could pair live credentials with the
+        # test host (or vice versa).
+        normalized = {**credentials, "environment": environment, "base_url": base_url or ""}
+        return {**normalized, "timeout": settings.GST_LOOKUP_TIMEOUT,
                 "access_ttl": settings.SANDBOX_ACCESS_TOKEN_TTL, "session_ttl": settings.SANDBOX_TAXPAYER_SESSION_TTL,
                 "auth_failure_cooldown": settings.SANDBOX_AUTH_FAILURE_COOLDOWN}
 
@@ -270,6 +282,9 @@ class SandboxGSTProvider(GSTLookupProvider):
             "method": "POST",
             "header_names": sorted(str(key) for key in headers.keys()),
             "body_keys": sorted(str(key) for key in body.keys()) if isinstance(body, dict) else [],
+            "environment": self.config.get("environment") or "",
+            "base_url": self.config.get("base_url") or "",
+            "credential_type": "TEST" if self.config.get("environment") == "test" else "PRODUCTION" if self.config.get("environment") == "production" else "UNKNOWN",
             "auth_token_attached": bool(headers.get("authorization")),
             "api_key_attached": bool(headers.get("x-api-key")),
             "taxpayer_session_attached": bool(headers.get("authorization")) and not headers.get("x-api-key"),
@@ -310,6 +325,11 @@ class SandboxGSTProvider(GSTLookupProvider):
                 self.last_provider_code = error_body.get("code")
                 self.last_provider_message = _first_text(error_body, "message")
                 self.last_provider_transaction_id = _first_text(error_body, "transaction_id")
+            elif self.last_response_body:
+                # Some Sandbox failures are returned as plain text. Preserve
+                # that provider message for the safe API diagnostics without
+                # exposing request credentials.
+                self.last_provider_message = self.last_response_body[:512]
             detail = f": {self.last_provider_message}" if self.last_provider_message else ""
             request_id = ""
             try:
@@ -360,6 +380,7 @@ class SandboxGSTProvider(GSTLookupProvider):
             raise
 
     def _authenticate(self, force=False, bypass_block=False):
+        self.last_token_refreshed = False
         if not force:
             cached = cache.get(self.cache_key("access-token"))
             if cached:
@@ -447,6 +468,7 @@ class SandboxGSTProvider(GSTLookupProvider):
         from superadmin.services.sandbox_configuration import encrypt
         ttl = _ttl(payload, self.config["access_ttl"])
         self._last_token = token
+        self.last_token_refreshed = True
         cache.set(self.cache_key("access-token"), encrypt(token), ttl)
         self._record_runtime_status(credentials_status="valid", connection_status="connected", last_error="",
                                     last_error_code="", last_verified_at=timezone.now(),
@@ -533,6 +555,8 @@ class SandboxGSTProvider(GSTLookupProvider):
         session, session_expired = self.taxpayer_session_state(company_gstin) if company_gstin else (None, False)
         session_active = bool(session)
         return {"provider": "sandbox", "configured": configured, "provider_configured": configured,
+                "environment": self.config.get("environment", ""), "base_url": self.config.get("base_url", ""),
+                "credential_type": "TEST" if self.config.get("environment") == "test" else "PRODUCTION" if self.config.get("environment") == "production" else "UNKNOWN",
                 "configuration_code": "" if configured else "SANDBOX_NOT_CONFIGURED",
                 "base_url_configured": bool(self.config.get("base_url")), "api_key_configured": bool(self.config.get("api_key")),
                 "api_secret_configured": bool(self.config.get("api_secret")), "missing": issues,
@@ -540,7 +564,7 @@ class SandboxGSTProvider(GSTLookupProvider):
                 "taxpayer_session_active": session_active, "session_active": session_active,
                 "session_required": False, "session_expired": session_expired,
                 "otp_required": False, "lookup_ready": configured and not invalid,
-                "lookup_failed": invalid, "requires_username": False,
+                "lookup_failed": bool(invalid or (self.config.get("last_error") if isinstance(self.config, dict) else False)), "requires_username": False,
                 "company_gstin": str(company_gstin or "").strip().upper(),
                 "gst_details_endpoint_configured": True,
                 "party_lookup_available": configured and not invalid,
@@ -551,8 +575,9 @@ class SandboxGSTProvider(GSTLookupProvider):
             result = self._lookup(gstin, company_gstin, force)
             self._record_runtime_status(connection_status="connected", last_error="", last_error_code="")
             return result
-        except GSTLookupAuthenticationError:
-            self._record_runtime_status(last_error="GST party lookup credentials require an update. Contact the administrator.",
+        except GSTLookupAuthenticationError as exc:
+            provider_message = self.last_provider_message or str(exc) or "Sandbox taxpayer lookup failed."
+            self._record_runtime_status(last_error=provider_message[:255],
                                         last_error_code="SANDBOX_AUTH_FAILED", connection_status="authentication_failed")
             raise
         except (GSTLookupProviderError, GSTLookupTimeoutError):

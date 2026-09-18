@@ -21,7 +21,6 @@ class GSTCompanyImportSummarySerializer(serializers.ModelSerializer):
         ]
 
 class GSTImportBatchSerializer(serializers.ModelSerializer):
-    invoices = GSTInvoiceSerializer(many=True, read_only=True)
     tally_mapping = serializers.SerializerMethodField()
     company_summary = GSTCompanyImportSummarySerializer(source="company_import_summary", read_only=True)
     upload_status_message = serializers.SerializerMethodField()
@@ -47,8 +46,8 @@ class GSTImportBatchSerializer(serializers.ModelSerializer):
                   "company_resolution_status", "company_resolution_error", "tally_mapping",
                   "company_summary", "upload_status_message",
                   "file_hash", "file_size", "tax_period",
-                  "uploaded_at", "created_at", "updated_at", "invoices"]
+                  "uploaded_at", "created_at", "updated_at"]
 
 class GSTImportBatchListSerializer(GSTImportBatchSerializer):
     class Meta(GSTImportBatchSerializer.Meta):
-        fields = [field for field in GSTImportBatchSerializer.Meta.fields if field != "invoices"]
+        fields = GSTImportBatchSerializer.Meta.fields

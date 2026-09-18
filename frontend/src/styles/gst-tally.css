@@ -3935,6 +3935,7 @@ button:disabled {
 .preview-screen .preview-header {
   flex: 0 0 auto;
   align-items: flex-start;
+  flex-wrap: nowrap;
   margin-bottom: 12px;
 }
 
@@ -3984,6 +3985,8 @@ button:disabled {
   align-items: center;
   gap: 10px;
   flex: none;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .preview-search {
@@ -4212,17 +4215,24 @@ button:disabled {
    collapse/expand (neither of which resizes .preview-screen itself here,
    since the sidebar is an off-canvas overlay -- see AppShell/Sidebar). */
 .preview-table-container {
-  flex: 1;
+  /* Claim every pixel left by the compact header and pager. The rendered
+     page-size is measured from this element in PreviewScreen. */
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .preview-table-container .source-grid-wrap {
-  flex: 1;
-  width: 100%;
-  height: auto;
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
   min-height: 0;
   max-height: none;
+  overflow-y: auto;
 }
 
 /* Step 2's own loading/error/empty states -- shown in place of the grid so a
@@ -4292,11 +4302,120 @@ button:disabled {
   color: #16324A;
   font-weight: 700;
   border-bottom-color: #D8E7F3;
+  height: 39px;
 }
+
+.preview-screen .preview-table td { height: 39px; }
 
 .preview-screen .preview-table tbody tr:hover td {
   background: #F4FAFD;
 }
+.preview-screen .preview-table tbody tr.preview-row-not-importable td {
+  background: #f1f4f7;
+  color: #607080;
+}
+
+/* The final import view carries only the transfer animation and live result
+   counters; company verification already happened in Step 3. */
+.import-screen .import-source-panel,
+.import-screen .import-destination-panel { display: none; }
+.import-screen .import-transfer-hero { grid-template-columns: minmax(0, 1fr); }
+
+.app-workspace:has(.step6-screen) .app-main { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+.app-workspace:has(.step6-screen) .top-header { min-height: 56px; padding: 8px 28px; }
+.app-workspace:has(.step6-screen) .workflow-shell { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 8px 18px 12px; }
+.step6-screen { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 0 0 8px; border: 0; box-shadow: none; }
+.step6-page-header { flex: none; margin: 0 0 8px; padding: 0 4px; }
+.step6-page-header h1 { margin: 0 0 2px; font-size: 24px; line-height: 1.15; }
+.step6-page-header p { color: #41678f; margin: 0; font-size: 14px; line-height: 1.25; }
+.step6-shell { flex: 1; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(135deg, #f4fbff, #fff); border: 1px solid #d7eaf7; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 26px rgba(22, 103, 164, .08); }
+.step6-columns { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(210px, .9fr) minmax(420px, 1.7fr) minmax(300px, 1fr); gap: 12px; padding: 12px 14px; }
+.step6-file-card, .step6-center-card, .step6-status-card { background: #fff; border: 1px solid #dcecf7; border-radius: 12px; }
+.step6-file-card { min-height: 0; padding: 16px; display: flex; flex-direction: column; align-items: flex-start; }
+.step6-file-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 11px; background: #13a65a; color: #fff; font-size: 16px; font-weight: 800; margin: 0 0 12px; }
+.step6-file-card h2 { color: #0a2e6e; font-size: 18px; margin: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step6-file-card p { color: #57779a; font-size: 13px; margin: 5px 0 14px; }
+.step6-file-rule { width: 100%; border-top: 1px solid #dcecf7; margin-bottom: 14px; }
+.step6-file-label { color: #0b4698; font-size: 15px; font-weight: 700; }
+.step6-file-total { color: #0b2d72; font-size: 38px; line-height: 1.05; margin: 8px 0 14px; }
+.step6-file-type { color: #0b65cf; background: #eff7ff; border: 1px solid #cfe8ff; border-radius: 8px; padding: 8px 13px; font-weight: 700; }
+.step6-center-card { min-height: 0; overflow: hidden; padding: 16px 22px; text-align: center; }
+.step6-center-card h2 { color: #082b6b; font-size: 24px; line-height: 1.15; margin: 0 0 3px; }
+.step6-center-card > p { color: #55789f; margin: 0 0 5px; font-size: 13px; }
+.step6-center-card .transfer3d { min-height: 0; height: calc(100% - 92px); margin: 0 auto; }
+.step6-center-card .transfer3d-stage { min-height: 0; max-height: none; }
+.step6-center-card .transfer3d-head { display: none; }
+.step6-progress-copy { display: flex; justify-content: space-between; color: #0b4a9d; font-size: 16px; margin-top: 4px; }
+.step6-progress-bar { height: 12px; margin: 6px 0 7px; border-radius: 99px; background: #e8f1f8; overflow: hidden; }
+.step6-progress-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #087cf0, #10b8ed); transition: width .25s ease; }
+.step6-progress-meta { color: #5e7c9d; font-size: 13px; font-weight: 600; margin: 0; }
+.step6-progress-meta span { margin: 0 8px; }
+.step6-status-grid { min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.step6-status-card { min-height: 0; padding: 14px; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; text-align: left; color: #17528f; }
+button.step6-status-card { cursor: pointer; font: inherit; }
+.step6-status-card > span { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #118af2; font-size: 21px; font-weight: 800; }
+.step6-status-card small { font-size: 13px; font-weight: 800; letter-spacing: .02em; }
+.step6-status-card strong { color: #0a3e8b; font-size: 36px; line-height: 1; }
+.step6-status-card.imported { background: #f1fcf7; border-color: #c5f0dc; }
+.step6-status-card.imported > span { background: #0aa45a; }
+.step6-status-card.failed { background: #fff7f7; border-color: #ffd6d6; }
+.step6-status-card.failed > span { background: #e92234; }
+.step6-status-card.remaining { background: #f7fafc; border-color: #d7e4ee; }
+.step6-status-card.remaining > span { background: #69829b; }
+.step6-footer { flex: none; border-top: 1px solid #d7eaf7; background: #fff; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.step6-footer > div { display: flex; flex-direction: column; gap: 7px; color: #0d3177; }
+.step6-footer > div span { color: #5e7c9d; font-size: 14px; }
+.step6-actions { display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
+.step6-actions button { border-radius: 9px; padding: 10px 16px; font-weight: 700; cursor: pointer; }
+.step6-secondary { color: #0670dc; background: #fff; border: 1px solid #b7daf7; }
+.step6-primary { color: #fff; background: #0868d1; border: 1px solid #0868d1; }
+.step6-result-modal { max-width: 960px; width: calc(100vw - 48px); }
+.step6-loading-shell { align-items: center; justify-content: center; min-height: 0; }
+.step6-loading-content { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #41678f; font-size: 14px; }
+.step6-loading-content strong { color: #0a2e6e; font-size: 18px; }
+.step6-loading-spinner { width: 28px; height: 28px; border: 3px solid #d7eaf7; border-top-color: #087cf0; border-radius: 50%; animation: step6LoadingSpin .8s linear infinite; }
+
+/* Compact desktop Step 6: keep the import workspace around half a viewport
+   instead of stretching the animation into a full-page card. */
+.step6-shell { flex: 1 1 auto; height: auto; max-height: none; overflow: hidden; }
+.step6-columns { flex: 0 0 auto; min-height: 0; height: 285px; padding: 10px 12px; gap: 10px; }
+.step6-file-card, .step6-center-card, .step6-status-card { min-height: 0; }
+.step6-file-card { padding: 13px; }
+.step6-file-icon { width: 42px; height: 42px; margin-bottom: 8px; }
+.step6-file-card p { margin-bottom: 10px; }
+.step6-file-rule { margin-bottom: 10px; }
+.step6-file-total { font-size: 34px; margin: 5px 0 10px; }
+.step6-center-card { padding: 13px 18px; }
+.step6-center-card h2 { font-size: 21px; }
+.step6-center-card .transfer3d { height: 165px; }
+.step6-center-card .transfer3d-stage { max-height: 120px; }
+.step6-status-grid { gap: 10px; }
+.step6-status-card { padding: 11px; }
+.step6-status-card strong { font-size: 31px; }
+.step6-footer { min-height: 55px; margin-top: auto; padding: 9px 13px; }
+.step6-footer > div { gap: 4px; }
+.step6-actions { gap: 8px; }
+.step6-actions button { padding: 8px 12px; }
+.step6-detail-panel { flex: 0 0 auto; margin: 0 12px 6px; border: 1px solid #d7eaf7; border-radius: 10px; background: #fff; overflow: hidden; }
+.step6-detail-heading { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border: 0; background: #f7fbfe; color: #0a2e6e; text-align: left; cursor: pointer; }
+.step6-detail-heading span { display: flex; flex-direction: column; gap: 3px; }
+.step6-detail-heading small { color: #5e7c9d; font-size: 11px; font-weight: 600; }
+.step6-detail-heading b { font-size: 17px; }
+.step6-status-panel { flex: 0 0 auto; min-height: 0; display: flex; flex-direction: column; }
+.step6-status-panel.has-records { flex: 1 1 auto; }
+.step6-status-panel .step6-detail-heading { flex: 0 0 auto; cursor: default; }
+.step6-status-panel .step6-detail-heading > button { border: 0; background: transparent; color: #0870d8; cursor: pointer; font-weight: 700; }
+.step6-status-panel-copy { flex: 0 0 auto; margin: 0; padding: 8px 12px; color: #5e7c9d; font-size: 12px; font-weight: 600; }
+.step6-inline-table-wrap { flex: 0 1 auto; min-height: 0; max-height: 100%; overflow: auto; border-top: 1px solid #d7eaf7; }
+.step6-inline-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.step6-inline-table th, .step6-inline-table td { padding: 6px 9px; border-bottom: 1px solid #e5eff6; text-align: left; vertical-align: top; }
+.step6-inline-table th { position: sticky; top: 0; background: #eef7fc; color: #17528f; font-size: 10px; text-transform: uppercase; }
+.step6-inline-table td:last-child { min-width: 280px; color: #4c6278; }
+.step6-footer { justify-content: flex-end; }
+.step6-actions { flex-wrap: nowrap; margin-left: auto; }
+.step6-status-card.is-selected { box-shadow: 0 0 0 3px rgba(8, 124, 240, .18); border-color: #087cf0; }
+@keyframes step6LoadingSpin { to { transform: rotate(360deg); } }
+@media (max-width: 1050px) { .step6-shell { height: auto; max-height: none; } .step6-columns { grid-template-columns: 1fr; height: auto; } .step6-file-card { min-height: auto; } .step6-file-icon { margin-top: 0; } .step6-status-grid { min-height: 0; } .step6-footer { align-items: flex-start; flex-direction: column; } .step6-actions { width: 100%; } }
 
 .preview-screen .preview-table td,
 .preview-screen .preview-table th {
@@ -4304,12 +4423,12 @@ button:disabled {
 }
 
 .preview-screen .preview-table td {
-  height: 34px;
+  height: 39px;
   padding: 6px 10px;
 }
 
 .preview-screen .preview-table th {
-  height: 36px;
+  height: 39px;
   padding: 8px 10px;
 }
 
@@ -6704,6 +6823,20 @@ button:disabled {
   color: var(--color-text-muted);
   background: #fff;
   border-bottom: 1px solid rgba(66, 165, 245, 0.12);
+}
+
+.voucher-item-row.voucher-status-already_imported td,
+.voucher-item-row.voucher-status-skipped td {
+  background: #f5f7f9;
+  color: #667789;
+}
+
+.voucher-status-reason {
+  display: block;
+  margin-top: 3px;
+  color: #718096;
+  font-size: 10px;
+  white-space: normal;
 }
 
 .voucher-item-row td:first-child {

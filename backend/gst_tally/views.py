@@ -51,7 +51,14 @@ class SourcePreviewView(APIView):
     def post(self, request):
         uploaded = request.FILES.get("file")
         if not uploaded: return Response({"detail": "File is required"}, status=400)
-        try: return Response(preview_file(uploaded, request.data.get("return_type", ""), request.data.get("sheet_name")))
+        try:
+            return Response(preview_file(
+                uploaded,
+                request.data.get("return_type", ""),
+                request.data.get("sheet_name"),
+                page=request.data.get("page", 1),
+                page_size=request.data.get("page_size", 50),
+            ))
         except ValueError as exc: return Response({"detail": str(exc)}, status=400)
 
 class ImportView(APIView):
@@ -438,7 +445,9 @@ class BatchPreviewView(APIView):
     def get(self, request, pk):
         batch = get_object_or_404(GSTImportBatch, pk=pk)
         try:
-            return Response(preview_batch(batch))
+            return Response(preview_batch(batch, page=request.query_params.get("page", 1),
+                                         page_size=request.query_params.get("page_size", 50),
+                                         search=request.query_params.get("search", "")))
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=400)
 
@@ -589,7 +598,13 @@ def _batch_sandbox_provider_status(rows):
     if "SANDBOX_NOT_CONFIGURED" in codes:
         return "NOT_CONFIGURED", "Sandbox is not configured."
     if codes:
-        return "ERROR", "Sandbox taxpayer lookup is currently unavailable."
+        message = ""
+        for row in rows:
+            lookup = row.get("sandbox_lookup") or {}
+            message = lookup.get("provider_message") or lookup.get("sandbox_error_message") or ""
+            if message:
+                break
+        return "ERROR", message or "Sandbox taxpayer lookup is currently unavailable."
     return "OK", ""
 
 
@@ -768,7 +783,22 @@ class BatchPartiesView(APIView):
             and not (sandbox_retry and row["status"] == "Fetched via Fallback")
             for row in rows
         )
-        return Response({"success": True, "batch_id": batch.id, "unique_gstins": len(set(input_gstins)),
+        sandbox_provider_status, sandbox_provider_message = _batch_sandbox_provider_status(rows)
+        sandbox_failure_rows = {"Sandbox Lookup Failed", "Sandbox Not Configured", "Sandbox Session Failed"}
+        sandbox_lookup_failed = bool(sandbox_retry and input_gstins and enriched == 0 and
+                                     len(rows) == len(input_gstins) and
+                                     all(row.get("status") in sandbox_failure_rows for row in rows) and
+                                     any((row.get("sandbox_lookup") or {}).get("sandbox_lookup_attempted") for row in rows))
+        first_lookup = next(((row.get("sandbox_lookup") or {}) for row in rows if row.get("sandbox_lookup")), {})
+        sandbox_rows = [row.get("sandbox_lookup") or {} for row in rows if row.get("sandbox_lookup")]
+        batch_party_details_complete = not sandbox_rows or all(bool(item.get("party_details_complete")) for item in sandbox_rows)
+        response_message = (f"Sandbox lookup failed: {sandbox_provider_message}" if sandbox_lookup_failed and sandbox_provider_message
+                            else "GSTIN lookup source is not configured." if not configured and needs_provider
+                            else "Party details lookup completed.")
+        return Response({"success": not sandbox_lookup_failed, "lookup_status": "FAILED" if sandbox_lookup_failed else "COMPLETED",
+                         "lookup_failed": sandbox_lookup_failed or any(bool(item.get("lookup_failed")) for item in sandbox_rows),
+                         "party_details_complete": batch_party_details_complete,
+                         "batch_id": batch.id, "unique_gstins": len(set(input_gstins)),
                          "attempted": len(pending_gstins),
                          "enriched": enriched, "failed": unresolved,
                          "remaining": unresolved, "enrichment_complete": unresolved == 0,
@@ -801,8 +831,16 @@ class BatchPartiesView(APIView):
                          "final_unresolved_rate_limited": counts["rate_limited"],
                          "lookup_configured": configured, "parties": rows,
                          "configuration_error": lookup_configuration_message() if not configured and needs_provider else "",
-                         "message": "GSTIN lookup source is not configured." if not configured and needs_provider else "Party details lookup completed.",
-                         **dict(zip(("sandbox_provider_status", "sandbox_provider_message"), _batch_sandbox_provider_status(rows)))})
+                         "message": response_message,
+                         "environment": first_lookup.get("environment", ""),
+                         "base_url": first_lookup.get("base_url", ""),
+                         "credential_type": first_lookup.get("credential_type", ""),
+                         "authentication_status": first_lookup.get("authentication_status", ""),
+                         "taxpayer_lookup_http_status": first_lookup.get("taxpayer_lookup_http_status"),
+                         "provider_message": first_lookup.get("provider_message", ""),
+                         "token_refreshed": bool(first_lookup.get("token_refreshed")),
+                         "sandbox_provider_status": sandbox_provider_status,
+                         "sandbox_provider_message": sandbox_provider_message})
 
 class BatchPartyDetailView(APIView):
     def put(self, request, pk, gstin):

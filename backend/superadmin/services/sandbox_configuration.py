@@ -9,6 +9,18 @@ from ..models import SandboxAPIConfiguration
 
 ACTIVE_CONFIGURATION_CACHE_KEY = "superadmin:sandbox:active-configuration"
 ACTIVE_CONFIGURATION_CACHE_SECONDS = 300
+SANDBOX_ENVIRONMENT_URLS = {
+    "test": "https://test-api.sandbox.co.in",
+    "production": "https://api.sandbox.co.in",
+}
+
+
+def get_sandbox_config(environment, api_version="1.0.0"):
+    """Return the single environment resolver used by auth and lookup."""
+    selected = str(environment or "test").strip().lower()
+    base_url = SANDBOX_ENVIRONMENT_URLS.get(selected, "")
+    return {"environment": selected, "auth_base_url": base_url,
+            "lookup_base_url": base_url, "api_version": str(api_version or "1.0.0").strip()}
 
 
 def _fernet():
@@ -67,9 +79,14 @@ def safe_status(configuration=None):
     connected = configured and configuration.connection_status == "connected"
     expires = configuration.session_expires_at if configuration else None
     expired = bool(expires and expires <= timezone.now())
-    return {"provider": "sandbox", "environment": configuration.environment if configuration else "test",
+    environment = configuration.environment if configuration else "test"
+    resolved = get_sandbox_config(environment, configuration.api_version if configuration else "1.0.0")
+    auth_ok = bool(valid and connected and not (configuration.last_error if configuration else ""))
+    return {"provider": "sandbox", "environment": resolved["environment"], "base_url": resolved["lookup_base_url"],
+            "credential_type": "TEST" if resolved["environment"] == "test" else "PRODUCTION" if resolved["environment"] == "production" else "UNKNOWN",
             "configured": configured, "provider_configured": configured,
-            "authenticated": bool(valid and connected), "lookup_ready": bool(valid and connected),
+            "authenticated": bool(valid and connected), "authentication_status": "connected" if valid and connected else "failed",
+            "lookup_status": "ready" if auth_ok else "failed", "lookup_ready": auth_ok,
             "credentials_status": configuration.credentials_status if configuration else "unverified",
             "connection_status": configuration.connection_status if configuration else "unverified",
             "session_required": True, "session_active": bool(valid and expires and not expired),
