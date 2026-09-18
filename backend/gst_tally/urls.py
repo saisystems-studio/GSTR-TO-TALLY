@@ -1,7 +1,7 @@
 from django.urls import path
 from superadmin.views import CustomerSupportContactView
 from .views import (BatchCompanyView, BatchDetailView, BatchListView, BatchPartiesView, BatchPartyDetailView, BatchPreviewView, ChangePasswordView, CompanyVerifyView,
-                    ImportView, MyProfileView, SourcePreviewView, TallyConnectionView, TallyDiagnosticsView, TallyImportActiveJobView,
+                    ImportView, MyProfileView, SourcePreviewView, BatchPreviewPdfView, TallyConnectionView, TallyDiagnosticsView, TallyImportActiveJobView,
                     TallyImportJobPauseView, TallyImportJobResumeView, TallyImportJobStatusView, TallyImportView, TallyLicenseView,
                     ProductLicenseActivateView, ProductLicenseHeartbeatView, ProductLicensePreImportCheckView, ProductLicenseVerifyView,
                     TallyMastersView, TallyVoucherCorrectionView, TallyVoucherPreviewView,
@@ -11,6 +11,7 @@ urlpatterns = [
     path("preview/", SourcePreviewView.as_view()), path("import/", ImportView.as_view()),
     path("batches/", BatchListView.as_view()), path("batches/<int:pk>/", BatchDetailView.as_view()),
     path("batches/<int:pk>/preview/", BatchPreviewView.as_view()),
+    path("batches/<int:pk>/preview/pdf/", BatchPreviewPdfView.as_view()),
     path("import-batches/<int:pk>/fetch-parties/", BatchPartiesView.as_view()),
     path("import-batches/<int:pk>/parties/", BatchPartiesView.as_view()),
     path("import-batches/<int:pk>/parties/<str:gstin>/", BatchPartyDetailView.as_view()),

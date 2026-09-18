@@ -19,6 +19,7 @@ import {
   getActiveTallyImportJob,
   getBatchParties,
   getBatchPreview,
+  downloadBatchPreviewPdf,
   getImportBatch,
   getTallyConnection,
   getTallyImportJobStatus,
@@ -2718,6 +2719,8 @@ function FileDetailsButton({ preview, batch, recordCount, fileName }) {
 }
 
 function DownloadButtons({ preview, batch }) {
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError] = useState('')
   const downloadExcel = () => {
     const columns = preview?.columns || []
     const rows = preview?.rows || []
@@ -2741,23 +2744,27 @@ function DownloadButtons({ preview, batch }) {
     link.click()
     URL.revokeObjectURL(link.href)
   }
-  const downloadPdf = () => {
-    if (!preview) return
-    const columns = preview.columns || []
-    const rows = preview.rows || []
-    const generatedOn = new Date().toLocaleString('en-IN')
-    const escapeHtml = value => String(show(value)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    const tableHeader = columns.map(column => `<th>${escapeHtml(column.label)}</th>`).join('')
-    const tableRows = rows.map(row => `<tr>${columns.map(column => `<td class="${column.format === 'money' || column.format === 'percent' ? 'number' : column.format === 'date' ? 'date' : ''}">${escapeHtml(column.format === 'money' ? money(row[column.key]) : column.format === 'percent' ? `${show(row[column.key])}%` : row[column.key])}</td>`).join('')}</tr>`).join('')
-    const report = `<!doctype html><html><head><title>GSTR 2 Tally - Invoice Preview</title><style>@page{size:A4 landscape;margin:12mm 10mm 15mm}*{box-sizing:border-box}body{font:8px Arial,sans-serif;color:#18324a;margin:0}header{display:grid;grid-template-columns:1fr 2fr 1fr;align-items:start;margin-bottom:10px}h1{font-size:13px;margin:0}h2{text-align:center;font-size:16px;margin:0}header p{margin:3px 0 0;font-size:9px}header .generated{text-align:right}table{width:100%;border-collapse:collapse;table-layout:auto}thead{display:table-header-group}th{background:#245b8c;color:#fff;font-weight:700;text-align:left;padding:5px 4px;border:1px solid #1d4b73;white-space:nowrap}td{padding:4px;border:1px solid #c8d8e5;white-space:nowrap}tbody tr:nth-child(even){background:#f3f8fb}.number{text-align:right}.date{text-align:center}.footer{position:fixed;bottom:-9mm;left:0;right:0;display:flex;justify-content:space-between;font-size:8px;color:#60788e}.page::after{content:'Page ' counter(page) ' of ' counter(pages)}</style></head><body><header><div><h1>GSTR 2 Tally</h1><p>Invoice Preview</p></div><div><h2>Invoice Preview</h2><p style="text-align:center">Return Type: ${escapeHtml(preview.return_type || batch?.gst_return_type || '-')}<br>Financial Year: ${escapeHtml(batch?.tax_period || batch?.financial_year || '-')}<br>Total Invoices: ${rows.length}</p></div><div class="generated">Generated On: ${escapeHtml(generatedOn)}</div></header><table><thead><tr>${tableHeader}</tr></thead><tbody>${tableRows}</tbody></table><div class="footer"><span>GSTR 2 Tally - Invoice Preview</span><span class="page"></span></div></body></html>`
-    const reportWindow = window.open('', '_blank', 'noopener,noreferrer')
-    if (!reportWindow) return
-    reportWindow.document.write(report)
-    reportWindow.document.close()
-    reportWindow.focus()
-    reportWindow.print()
+  const downloadPdf = async () => {
+    if (!batch?.id || pdfLoading) return
+    setPdfLoading(true)
+    setPdfError('')
+    try {
+      const blob = await downloadBatchPreviewPdf(batch.id)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `Invoice_Preview_Batch_${batch.id}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setPdfError('Unable to generate PDF. Please try again.')
+    } finally {
+      setPdfLoading(false)
+    }
   }
-  return <div className="download-buttons"><button className="download-excel" onClick={downloadExcel} disabled={!preview}>Excel ↓</button><button className="download-pdf" onClick={downloadPdf} disabled={!preview}>PDF ↓</button></div>
+  return <div className="download-buttons"><button className="download-excel" onClick={downloadExcel} disabled={!preview}>Excel ↓</button><button className="download-pdf" onClick={downloadPdf} disabled={!preview || pdfLoading}>{pdfLoading ? 'Generating...' : 'PDF ↓'}</button>{pdfError && <span className="download-error" role="alert">{pdfError}</span>}</div>
 }
 
 function DataTable({ columns, rows, render, empty }) {

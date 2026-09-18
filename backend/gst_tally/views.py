@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.shortcuts import get_object_or_404
+from django.http import HttpResponse
 from django.conf import settings
 from django.db import close_old_connections, connection, transaction
 from django.utils import timezone
@@ -22,6 +23,7 @@ from .services.import_service import import_file
 from .services.company import resolve_batch_company
 from .services.company_verification import verify_and_store_company
 from .services.source_preview import preview_batch, preview_file
+from .services.preview_pdf import build_preview_pdf
 from .services.system_info import collect_system_configuration
 from .services.party_lookup import (lookup_configuration_message, lookup_is_configured,
                                     normalize_gstin, party_eligibility, party_is_complete, party_is_fresh, process_gstin, result_row,
@@ -450,6 +452,13 @@ class BatchPreviewView(APIView):
                                          search=request.query_params.get("search", "")))
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=400)
+
+class BatchPreviewPdfView(APIView):
+    def get(self, request, pk):
+        batch = get_object_or_404(GSTImportBatch, pk=pk)
+        response = HttpResponse(build_preview_pdf(batch), content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="Invoice_Preview_Batch_{batch.id}.pdf"'
+        return response
 
 class BatchCompanyView(APIView):
     def get(self, request, pk):

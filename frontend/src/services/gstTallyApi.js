@@ -18,6 +18,11 @@ export function uploadGSTFile({returnType,returnPeriod,file}){const data=new For
 export function previewGSTFile({returnType,file,sheetName}){const data=new FormData();data.append('return_type',returnType);data.append('file',file);if(sheetName)data.append('sheet_name',sheetName);return request('/preview/',{method:'POST',body:data})}
 export const getImportBatch=id=>request(`/batches/${id}/`)
 export const getBatchPreview=(id,{page=1,pageSize=50,search=''}={})=>request(`/batches/${id}/preview/?${new URLSearchParams({page:String(page),page_size:String(pageSize),...(search ? {search} : {})})}`)
+export async function downloadBatchPreviewPdf(id) {
+  const response = await authenticatedFetch(`${BASE}/batches/${id}/preview/pdf/`)
+  if (!response.ok) throw new Error('Unable to generate PDF.')
+  return response.blob()
+}
 export const getImportHistory=()=>request('/batches/')
 export const fetchBatchParties=(id,{force=false,retryIncomplete=false,gstins=[]}={})=>request(`/import-batches/${id}/fetch-parties/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force,retry_incomplete:retryIncomplete,gstins})})
 export const getBatchParties=id=>request(`/import-batches/${id}/parties/`)
