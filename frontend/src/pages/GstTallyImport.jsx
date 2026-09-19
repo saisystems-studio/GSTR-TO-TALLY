@@ -896,12 +896,15 @@ function ConnectorStatusBanner({ status }) {
   const label = status?.status || 'Connector Required'
   const ready = label === 'Ready to Import'
   const connectorDetected = Boolean(status?.connected || status?.status === 'Connecting to Tally...')
+  const [downloadStarted, setDownloadStarted] = useState(false)
+  const downloadUrl = status?.download_url || '/gstr2tally/downloads/GSTR2TallyConnectorSetup.exe'
   if (!connectorDetected) {
     return <section className="connector-required-card" role="status" aria-live="polite">
       <h2>Tally Connection</h2>
       <strong>Connector Not Detected</strong>
-      <p>To connect GSTR2TALLY with Tally Prime, install the Tally Connector once.</p>
-      {status?.download_url && <a className="connector-download-button" href={status.download_url}>Download &amp; Connect Tally</a>}
+      <p>{downloadStarted ? 'Open the downloaded setup and click Install. GSTR2TALLY will connect automatically.' : 'Connect GSTR2TALLY with TallyPrime in one simple installation.'}</p>
+      <a className="connector-download-button" href={downloadUrl} download onClick={() => setDownloadStarted(true)}>Connect Tally</a>
+      {downloadStarted && <p className="connector-install-note">Open the downloaded setup and click Install.</p>}
     </section>
   }
   return <div className={`connector-status-banner ${ready ? 'is-ready' : ''}`} role="status">
@@ -909,7 +912,7 @@ function ConnectorStatusBanner({ status }) {
     <span>Tally: {status?.tally_connected ? 'Connected' : label === 'Connecting to Tally...' ? 'Connecting...' : 'Not Running'}</span>
     {status?.company_name && <span>Company: {status.company_name}</span>}
     {status?.company_gstin && <span>GSTIN: {status.company_gstin}</span>}
-    <strong>Status: {ready ? 'Ready' : label}</strong>
+    <strong>Status: {ready ? 'Ready to Import' : label}</strong>
   </div>
 }
 

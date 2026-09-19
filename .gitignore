@@ -4,6 +4,9 @@ __pycache__/
 *.sqlite3
 frontend/node_modules/
 frontend/dist/
+local-tally-agent/dist/
+local-tally-agent/out/
+deploy/downloads/*.exe
 .venv/
 secrets/
 *.pem

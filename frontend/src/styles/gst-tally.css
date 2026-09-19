@@ -13310,8 +13310,4 @@ Serial numbers friends   3D transfer hero (ImportTransfer3D.jsx): the visual cen
 .connector-required-card p { margin:8px 0 20px; line-height:1.5; }
 .connector-download-button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:0 16px; border-radius:8px; background:#2563eb; color:#fff; font-weight:700; text-decoration:none; }
 .connector-download-button:hover { background:#1d4ed8; color:#fff; }
-.direct-tally-test { display:flex; justify-content:space-between; gap:16px; align-items:center; margin:12px 0; padding:12px 14px; border:1px dashed #94a3b8; border-radius:10px; background:#f8fafc; color:#334155; }
-.direct-tally-test p { margin:4px 0 0; font-size:12px; }
-.direct-tally-test small { display:block; margin-top:4px; color:#166534; }
-.direct-tally-test.is-connected { border-color:#86efac; background:#f0fdf4; }
-.direct-tally-test-button { white-space:nowrap; }
+.connector-install-note { margin:14px 0 0; font-weight:700; color:#166534; }

@@ -1,5 +1,7 @@
 #define MyAppName "GSTR2Tally Connector"
-#define MyAppVersion "1.0.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "GSTR2Tally"
 #define MyAppExeName "GSTR2TallyConnector.exe"
 
@@ -9,7 +11,10 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\GSTR2Tally Connector
+DisableWelcomePage=yes
+DisableDirPage=yes
 DisableProgramGroupPage=yes
+DisableReadyPage=yes
 PrivilegesRequired=lowest
 OutputBaseFilename=GSTR2TallyConnectorSetup
 Compression=lzma
