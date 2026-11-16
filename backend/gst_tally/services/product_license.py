@@ -540,6 +540,75 @@ def verify_license_snapshot(
     )
 
 
+def _nexus_pre_import(*, connection, reading, source_gstin, user, fingerprint, device_name):
+    """Step 3 for a Nexus-linked session. Nexus is the licensing authority: the account's Tally serial
+    (its User ID), license state and device binding come from the verified Nexus link, never from a
+    local ProductLicense row. Nothing is created, transferred or modified in the local license tables,
+    so a legacy local account holding the same serial is left exactly as it is."""
+    connected = bool(connection.get("read_connected") and connection.get("can_import"))
+    current_gstin = normalize_gstin(connection.get("company_gstin"))
+    company_name = connection.get("company_name", "")
+    company_match = bool(connected and source_gstin and source_gstin == current_gstin)
+    detected = normalize_tally_serial(reading.get("serial_number"))
+    link = None
+    now = timezone.now()
+    if fingerprint:
+        link = user.nexus_links.filter(client_device_id=fingerprint[:64], revoked_reason="").first()
+        if link and link.lease_until and link.lease_until < now:
+            link = None
+    lic = (link.license if link else {}) or {}
+    registered = normalize_tally_serial(link.nexus_user_id) if link else ""
+    serial_match = bool(reading.get("license_available") and detected and registered and detected == registered)
+    licensed = bool(link and lic.get("authorized"))
+    authorized = bool(link)
+    errors = []
+
+    def fail(code, message):
+        if not any(e["code"] == code for e in errors):
+            errors.append({"code": code, "message": message})
+
+    if not connected:
+        fail("TALLY_NOT_CONNECTED", "Connect to Tally and open the required company.")
+    if not source_gstin:
+        fail("SOURCE_COMPANY_GSTIN_MISSING", "Identify the company GSTIN from the uploaded return.")
+    elif connection.get("read_connected") and not company_match:
+        fail("COMPANY_GSTIN_MISMATCH", f"Open the Tally company having GSTIN {source_gstin}.")
+    if not fingerprint or not link:
+        fail("DEVICE_NOT_AUTHORIZED", "This laptop is not activated for your account. Sign out and use Activate User "
+                                      "(email code + Activation Key) to activate it.")
+    elif not licensed:
+        from nexus_auth.service import license_error
+        problem = license_error(lic) or ("license_inactive", "License is not authorised.")
+        fail("NEXUS_LICENSE_NOT_AUTHORIZED", problem[1])
+    if not reading.get("license_available") or not detected:
+        fail("TALLY_LICENSE_DATA_UNAVAILABLE", "Unable to read the actual Tally serial. Check the Tally connection and license.")
+    elif registered and not serial_match:
+        fail("TALLY_SERIAL_MISMATCH", f"This account is licensed for Tally serial {registered}. Open the matching Tally installation.")
+    ready = bool(not errors and connected and company_match and serial_match and licensed and authorized)
+    if ready:
+        _record_company_mapping(gstin=current_gstin, detected_serial=detected, company_name=company_name)
+    return dict(
+        tally_connected=connected, company_verified=company_match, company_name=company_name, company_gstin=current_gstin,
+        source_file_gstin=source_gstin, current_tally_company_name=company_name, current_tally_company_gstin=current_gstin,
+        current_company_gstin=current_gstin, registered_tally_serial=registered, detected_tally_serial=detected, serial_number=detected,
+        license_available=bool(reading.get("license_available")), license_error_detail=reading.get("license_error_detail", ""),
+        edition=reading.get("edition", ""), tally_edition=reading.get("edition", ""),
+        tally_software_services=reading.get("tally_software_services", ""), license_administrator=reading.get("license_administrator", ""),
+        license_verified=bool(serial_match and licensed), device_authorized=authorized, device_limit_allowed=True,
+        product_allowed=licensed, license_source="nexus", license_plan=lic.get("license_plan", ""),
+        expiry_date=lic.get("expires_at", ""), status=lic.get("state", ""),
+        company={"name": company_name, "source_gstin": source_gstin, "tally_gstin": current_gstin, "gstin_match": company_match},
+        tally_license={"registered_serial": registered, "detected_serial": detected, "match": serial_match},
+        product={"allowed": licensed, "limit": 1, "used": 1 if licensed else 0},
+        device={"authorized": authorized, "device_name": device_name or fingerprint, "device_fingerprint": fingerprint,
+                "limit": 1, "used": 1 if authorized else 0, "limit_allowed": True},
+        errors=errors, ready=ready, ready_for_master_preparation=ready,
+        verification_result=errors[0]["code"] if errors else LICENSE_VERIFIED,
+        license_error=errors[0]["code"] if errors else "",
+        message=errors[0]["message"] if errors else "Correct company and the Nexus-licensed Tally serial are in use on this activated laptop.",
+    )
+
+
 @transaction.atomic
 def pre_import_security_check(batch, user, device_fingerprint="", device_name="", ip_address="", client=None):
     """Evaluate all Step 3 checks before registration; retain the legacy API fields."""
@@ -562,6 +631,9 @@ def pre_import_security_check(batch, user, device_fingerprint="", device_name=""
                    'license_available': bool(connection.get('serial_number'))}
     else:
         reading = read_tally_license(client=client) if connection.get("read_connected") else {}
+    if user is not None and getattr(user, "is_authenticated", False) and user.nexus_links.exists():
+        return _nexus_pre_import(connection=connection, reading=reading, source_gstin=source_gstin, user=user,
+                                 fingerprint=str(device_fingerprint or "").strip(), device_name=device_name)
     detected = normalize_tally_serial(reading.get("serial_number"))
     licenses = ProductLicense.objects.select_for_update().filter(customer=user).exclude(status=ProductLicense.REVOKED)
     serials = {normalize_tally_serial(value) for value in licenses.values_list("licensed_tally_serial", flat=True)} - {""}
@@ -599,7 +671,14 @@ def pre_import_security_check(batch, user, device_fingerprint="", device_name=""
     elif connection.get("read_connected") and not company_match:
         fail("COMPANY_GSTIN_MISMATCH", f"Open the Tally company having GSTIN {source_gstin}.")
     if not registered:
-        fail("PRODUCT_LICENSE_NOT_CONFIGURED", "Tally License Not Configured. Ask your administrator to configure the registered serial.")
+        owned_elsewhere = bool(detected and ProductLicense.objects.filter(licensed_tally_serial=detected)
+                               .exclude(customer=user).exclude(status=ProductLicense.REVOKED).exists())
+        if owned_elsewhere:
+            fail("LICENSE_ASSIGNED_TO_ANOTHER_ACCOUNT",
+                 f"License Assigned to Another Account: Tally serial {detected} is registered to a different account. "
+                 "Sign in with the account that owns it, or ask your administrator to transfer the license to this account.")
+        else:
+            fail("PRODUCT_LICENSE_NOT_CONFIGURED", "Tally License Not Configured. Ask your administrator to configure the registered serial.")
     if not reading.get("license_available") or not detected:
         fail("TALLY_LICENSE_DATA_UNAVAILABLE", "Unable to read the actual Tally serial. Check the Tally connection and license.")
     elif registered and not serial_match:
@@ -664,6 +743,11 @@ def pre_import_security_check(batch, user, device_fingerprint="", device_name=""
         license_error=errors[0]["code"] if errors else "",
         message=errors[0]["message"] if errors else "Correct company and registered Tally license are currently in use.",
     )
+    if license_obj and not authorized and fingerprint:
+        from gst_tally.services.device_transfer import preview as _transfer_preview
+        _tp = _transfer_preview(user, fingerprint, device_name, license_obj.licensed_tally_serial)
+        if _tp.get("transfer_available"):
+            result["device_transfer"] = _tp
     if license_obj:
         result.update(license_id=license_obj.id, licensed_gstin=license_obj.licensed_gstin,
                       expiry_date=license_obj.expiry_date, status=license_obj.status)

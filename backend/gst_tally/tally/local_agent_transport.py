@@ -43,7 +43,11 @@ class LocalAgentTallyClient:
             job.payload = {**job.payload, "operation": operation_name}
             job.save(update_fields=["payload"])
         deadline = time.monotonic() + float(getattr(settings, "TALLY_AGENT_RESULT_TIMEOUT", 90))
+        last_beat = 0.0
         while time.monotonic() < deadline:
+            if time.monotonic() - last_beat >= 5:
+                last_beat = time.monotonic()
+                self._heartbeat()
             job.refresh_from_db()
             if job.status == LocalTallyJob.SUCCESS:
                 raw = str((job.acknowledgement or {}).get("raw_response", ""))
@@ -55,6 +59,13 @@ class LocalAgentTallyClient:
                 raise TallyConnectionError("TALLY_AGENT_JOB_FAILED", job.error_message or "Local Tally agent could not complete the request.")
             time.sleep(0.5)
         raise TallyConnectionError("TALLY_AGENT_RESULT_UNKNOWN", "Tally acknowledgement is pending; reconciliation is required before retrying.")
+
+    def _heartbeat(self):
+        # Keep the import job alive while waiting for the agent, otherwise a
+        # slow acknowledgement makes the job look abandoned (INTERRUPTED).
+        from gst_tally.models import TallyImportJob
+        TallyImportJob.objects.filter(batch=self.batch, status__in=("PENDING", "RUNNING", "VERIFYING")).update(
+            heartbeat_at=timezone.now())
 
     def import_data(self, payload):
         return parse_response(self.post(payload))

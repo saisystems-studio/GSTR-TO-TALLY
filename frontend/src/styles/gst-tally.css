@@ -13311,3 +13311,37 @@ Serial numbers friends   3D transfer hero (ImportTransfer3D.jsx): the visual cen
 .connector-download-button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:0 16px; border-radius:8px; background:#2563eb; color:#fff; font-weight:700; text-decoration:none; }
 .connector-download-button:hover { background:#1d4ed8; color:#fff; }
 .connector-install-note { margin:14px 0 0; font-weight:700; color:#166534; }
+
+.tally-connect-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border: 1px solid rgba(120,130,150,.25);
+  border-radius: 999px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(15,23,42,.06);
+  cursor: pointer;
+}
+.tally-connect-fab:hover { background: #f8fafc; }
+.tally-connect-dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; flex-shrink: 0; }
+.tally-connect-dot.is-connecting { background: #f59e0b; }
+.tally-connect-dot.is-ready { background: #22c55e; }
+@media (max-width: 560px) {
+  .tally-connect-fab { padding: 6px 10px; font-size: 11px; }
+  .tally-connect-fab span:last-child { display: none; }
+}
+.tally-connect-modal { width: min(520px, 100%); }
+.tally-connect-modal .connector-required-card,
+.tally-connect-modal .connector-status-banner { margin: 0; }
+
+.device-transfer{max-width:520px;width:calc(100% - 32px);padding:20px}
+.device-transfer-details{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:12px 0}
+.device-transfer-details dt{font-weight:600}.device-transfer-details dd{margin:0;word-break:break-word}
+.device-transfer label{display:block;margin:10px 0}.device-transfer input{display:block;width:100%;margin-top:4px;padding:8px}
+.device-transfer-actions{display:flex;gap:10px;flex-wrap:wrap}.device-transfer-actions button{flex:1 1 160px;min-height:44px}

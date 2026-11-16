@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import NexusLicensePanel from './NexusLicensePanel.jsx'
 
 export default function UserMenu({ user, onLogout }) {
   const [open, setOpen] = useState(false)
@@ -27,6 +28,7 @@ export default function UserMenu({ user, onLogout }) {
     {open && <div className="user-menu-panel" role="menu">
       <div className="user-menu-heading">Hi, {name}</div>
       <div className="user-menu-divider" />
+      {user?.tally_serial && <NexusLicensePanel user={user} />}
       <button type="button" role="menuitem" className="user-menu-item" onClick={() => { setOpen(false); onLogout() }}>Logout</button>
     </div>}
   </div>

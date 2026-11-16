@@ -25,7 +25,7 @@ INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
     "corsheaders", "rest_framework", "gst_tally", "subscriptions",
-    "superadmin",
+    "superadmin", "nexus_auth",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware", "corsheaders.middleware.CorsMiddleware",
@@ -74,7 +74,7 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOWED_ORIGINS = [x.strip() for x in env("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": ("rest_framework_simplejwt.authentication.JWTAuthentication",),
+    "DEFAULT_AUTHENTICATION_CLASSES": ("nexus_auth.authentication.NexusAwareJWTAuthentication",),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser", "rest_framework.parsers.FormParser", "rest_framework.parsers.MultiPartParser"],
     "DEFAULT_RENDERER_CLASSES": ["gst_tally.renderers.UTF8JSONRenderer"],
@@ -130,7 +130,7 @@ TALLY_ODBC_TIMEOUT = int(env("TALLY_ODBC_TIMEOUT", "10"))
 # Kept for compatibility with older deployments. It never simulates a successful import.
 TALLY_MOCK = env_bool("TALLY_MOCK", False)
 TALLY_SINGLE_VOUCHER_GATE = env_bool("TALLY_SINGLE_VOUCHER_GATE", True)
-TALLY_LOCAL_AGENT_REQUIRED = env_bool("TALLY_LOCAL_AGENT_REQUIRED", False)
+TALLY_LOCAL_AGENT_REQUIRED = env_bool("TALLY_LOCAL_AGENT_REQUIRED", not DEBUG)
 CONNECTOR_DOWNLOAD_URL = env("CONNECTOR_DOWNLOAD_URL", "/gstr2tally/downloads/GSTR2TallyConnectorSetup.exe")
 TALLY_AGENT_RESULT_TIMEOUT = int(env("TALLY_AGENT_RESULT_TIMEOUT", "90"))
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
@@ -181,3 +181,14 @@ GSTZEN_API_ENDPOINT = env("GSTZEN_API_ENDPOINT")
 GSTZEN_API_KEY = env("GSTZEN_API_KEY")
 GSTZEN_CLIENT_ID = env("GSTZEN_CLIENT_ID")
 GSTZEN_CLIENT_SECRET = env("GSTZEN_CLIENT_SECRET")
+
+# --- Nexus central licensing (see docs/NEXUS-API-INTEGRATION.md) ---
+# The product key is a product identifier held server-side only (never in the EXE/browser).
+NEXUS_ENABLED = env_bool("NEXUS_ENABLED", False)
+NEXUS_ENFORCE = env_bool("NEXUS_ENFORCE", False)  # True: only Nexus-linked sessions (or staff) may use the API
+NEXUS_BASE_URL = env("NEXUS_BASE_URL", "https://saitallyexpert.in/nexus/")
+NEXUS_PRODUCT_ID = env("NEXUS_PRODUCT_ID", "gstr2tally")
+NEXUS_PRODUCT_KEY = env("NEXUS_PRODUCT_KEY", "")
+NEXUS_EVENT_SIGNING_SECRET = env("NEXUS_EVENT_SIGNING_SECRET", "")  # same value as Nexus TALLY_EVENT_SIGNING_SECRET
+NEXUS_EVENTS_PATH = env("NEXUS_EVENTS_PATH", "events/device-transfer/")  # verify against the deployed Nexus before relying on it
+NEXUS_TIMEOUT = int(env("NEXUS_TIMEOUT", "15"))

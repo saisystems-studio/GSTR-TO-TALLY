@@ -42,6 +42,10 @@ class SubscriptionEnforcementMiddleware:
                          "expiry_date": blocked.expiry_date.isoformat() if blocked.expiry_date else None},
                         status=402,
                     )
+                if not request.path.startswith("/api/gst-tally/license/device-transfer/"):
+                    from gst_tally.services.device_transfer import TRANSFERRED_MESSAGE, device_is_transferred_away
+                    if device_is_transferred_away(user, request.headers.get("X-Device-ID", "")):
+                        return JsonResponse({"code": "DEVICE_TRANSFERRED", "detail": TRANSFERRED_MESSAGE}, status=403)
         return self.get_response(request)
 
     def _resolve_user(self, request):

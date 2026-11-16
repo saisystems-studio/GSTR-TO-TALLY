@@ -29,6 +29,7 @@ APP_DIR = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'GSTR2TallyConnect
 CONFIG_PATH = APP_DIR / 'credentials.dat'
 TALLY_URL = 'http://127.0.0.1:9000'
 API_PREFIX = '/api/gst-tally/local-agent/'
+WEB_URL = ''  # set only by the loopback developer override in main(); empty = origin + /gstr2tally/
 
 
 def save_private(path, value, encrypt=protect):
@@ -82,9 +83,11 @@ def bounded_read(response):
 
 def api(origin, path, payload=None, token=''):
     parsed = urlsplit(origin)
-    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ('', '/'):
+    # HTTPS only. Plain HTTP is accepted solely for a loopback origin (developer builds talking to a local backend).
+    loopback_dev = parsed.scheme == 'http' and parsed.hostname in ('127.0.0.1', 'localhost')
+    if (parsed.scheme != 'https' and not loopback_dev) or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ('', '/'):
         raise ValueError('A valid release HTTPS origin is required.')
-    if not path.startswith(API_PREFIX):
+    if not path.startswith((API_PREFIX, '/api/nexus/connector/')):
         raise ValueError('Unsupported API operation.')
     headers = {'Content-Type': 'application/json'}
     if token:
@@ -120,12 +123,39 @@ def read_tally_identity(expected_gstin=''):
                 financial_year_from=(company.findtext('FINANCIALYEARFROM') or '').strip(),
                 financial_year_to=(company.findtext('FINANCIALYEARTO') or '').strip(),
                 books_from=(company.findtext('BOOKSFROM') or '').strip())
+    except (OSError, ValueError, urllib.error.URLError, ET.ParseError):
+        logging.info('Tally company identity is unavailable or incomplete.')
+    # License discovery must work even with no usable company response.
+    try:
         serial = ET.fromstring(tally_post(build_license_query_xml()))
         if serial.findtext('.//HEADER/STATUS') == '1':
             result['tally_serial'] = (serial.findtext('.//DATA/RESULT') or serial.findtext('.//RESULT') or '').strip()
     except (OSError, ValueError, urllib.error.URLError, ET.ParseError):
         logging.info('Tally identity is unavailable or incomplete.')
     return result
+
+
+def read_license_meta():
+    """Optional TallyPrime licence details via $$LicenseInfo. Only values Tally actually returns are
+    included; unsupported parameters are skipped (never guessed). Experimental: see docs."""
+    def param(name):
+        try:
+            root = ET.fromstring(tally_post(build_license_query_xml(name)))
+            if root.findtext('.//HEADER/STATUS') == '1':
+                return (root.findtext('.//DATA/RESULT') or root.findtext('.//RESULT') or '').strip()
+        except (OSError, ValueError, urllib.error.URLError, ET.ParseError):
+            pass
+        return ''
+    meta = {}
+    gold, silver = param('IsGold').lower(), param('IsSilver').lower()
+    if gold == 'yes':
+        meta['edition'] = 'TallyPrime Gold'
+    elif silver == 'yes':
+        meta['edition'] = 'TallyPrime Silver'
+    admin = param('AdminEmailID')
+    if admin:
+        meta['license_administrator'] = admin
+    return meta
 
 
 def validate_job(job, scope, identity):
@@ -171,10 +201,18 @@ def enroll(origin, config):
         save_private(CONFIG_PATH, config)
     pending = config['enrollment']
     if not pending['opened']:
-        webbrowser.open(origin+'/gstr2tally/#connector='+pending['enrollment_id']+'.'+pending['proof'])
+        webbrowser.open((WEB_URL or origin+'/gstr2tally/')+'#connector='+pending['enrollment_id']+'.'+pending['proof'])
         pending['opened'] = True
         save_private(CONFIG_PATH, config)
     identity = read_tally_identity()
+    # First-time discovery: lets a not-yet-registered customer see the verified Tally serial in GSTR.
+    try:
+        api(origin, '/api/nexus/connector/discovery/', {
+            'enrollment_id': pending['enrollment_id'], 'poll_secret': pending['poll'],
+            'tally_reachable': identity.get('tally_reachable', False) and bool(identity.get('tally_serial')),
+            'tally_serial': identity.get('tally_serial', ''), **(read_license_meta() if identity.get('tally_serial') else {})})
+    except (urllib.error.URLError, OSError, ValueError):
+        logging.info('Discovery report will retry.')
     status, response = api(origin, API_PREFIX+'enroll/claim/', {
         'enrollment_id': pending['enrollment_id'], 'poll_secret': pending['poll'],
         'token': pending['token'], **identity})
@@ -229,7 +267,23 @@ def main():
     with single_instance() as acquired:
         if not acquired:
             return
-        release = json.loads((Path(__file__).parent/'release.json').read_text())
+        # PyInstaller 6 onedir keeps bundled code in <app>\_internal, but the installer places release.json next
+        # to the executable; accept either location (executable folder first).
+        candidates = [Path(sys.executable).parent/'release.json', Path(__file__).parent/'release.json']
+        release_file = next((c for c in candidates if c.exists()), candidates[-1])
+        release = json.loads(release_file.read_text(encoding='utf-8-sig'))
+        # Developer-only: run from source against a LOCAL backend/web app instead of production.
+        # Loopback http origins only; anything else is ignored, so the packaged connector cannot be redirected.
+        global WEB_URL
+        def loopback(value):
+            parts = urlsplit(value)
+            return parts.scheme == 'http' and parts.hostname in ('127.0.0.1', 'localhost')
+        dev_origin = os.environ.get('GSTR_CONNECTOR_DEV_ORIGIN', '').strip()
+        if dev_origin and loopback(dev_origin):
+            release['origin'] = dev_origin.rstrip('/')
+            dev_web = os.environ.get('GSTR_CONNECTOR_DEV_WEB_URL', '').strip()
+            WEB_URL = dev_web if dev_web and loopback(dev_web) else ''
+            logging.info('Developer origin override active: %s', release['origin'])
         while True:
             try:
                 run(release['origin'])

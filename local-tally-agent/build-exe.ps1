@@ -1,15 +1,18 @@
-param(
+﻿param(
     [string]$PythonExe = "python",
     [Parameter(Mandatory = $true)][string]$Origin,
     [string]$Version = "1.0.0",
+    [string]$InstallerBaseName = "SaiInfosys-GSTR2Tally-Setup",
+    [switch]$DevLoopback,
     [string]$InnoSetupCompiler = ""
 )
 
 $ErrorActionPreference = 'Stop'
-$installerName = 'GSTR2TallyConnectorSetup.exe'
+$installerName = "$InstallerBaseName.exe"
 $releaseDir = Join-Path $PSScriptRoot 'release'
 try { $releaseOrigin = [Uri]$Origin } catch { throw 'Origin must be an absolute HTTPS URL.' }
-if (-not $releaseOrigin.IsAbsoluteUri -or $releaseOrigin.Scheme -ne 'https' -or
+$devOk = $DevLoopback -and $releaseOrigin.Scheme -eq 'http' -and $releaseOrigin.Host -in @('127.0.0.1','localhost')
+if (-not $releaseOrigin.IsAbsoluteUri -or ($releaseOrigin.Scheme -ne 'https' -and -not $devOk) -or
     $releaseOrigin.AbsolutePath -ne '/' -or $releaseOrigin.Query -or
     $releaseOrigin.Fragment -or $releaseOrigin.UserInfo) {
     throw 'Origin must be an absolute HTTPS origin without a path, query, fragment, or credentials.'
@@ -45,7 +48,7 @@ if (-not (Test-Path -LiteralPath $connectorExe)) { throw "PyInstaller did not cr
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 $installer = Join-Path $releaseDir $installerName
 if (Test-Path -LiteralPath $installer) { Remove-Item -LiteralPath $installer -Force }
-& $InnoSetupCompiler "/DMyAppVersion=$Version" "/O$releaseDir" "/F$([IO.Path]::GetFileNameWithoutExtension($installerName))" (Join-Path $PSScriptRoot 'GSTR2TallyConnector.iss')
+& $InnoSetupCompiler "/DMyAppVersion=$Version" "/DOutputName=$InstallerBaseName" "/O$releaseDir" "/F$([IO.Path]::GetFileNameWithoutExtension($installerName))" (Join-Path $PSScriptRoot 'GSTR2TallyConnector.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
 if (-not (Test-Path -LiteralPath $installer)) { throw "Inno Setup did not create $installer" }
 if ((Get-Item -LiteralPath $installer).Length -lt 1MB) { throw "Generated installer is unexpectedly small: $installer" }

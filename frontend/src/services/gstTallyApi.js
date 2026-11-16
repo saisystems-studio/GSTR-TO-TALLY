@@ -13,7 +13,7 @@ const BASE = '/api/gst-tally'
 // is blocked, not only when the screen that happened to call it bothers to
 // check error.code itself.
 const SUBSCRIPTION_BLOCKED_EVENT = 'gst-subscription-blocked'
-async function request(path, options={}){try{const response=await authenticatedFetch(`${BASE}${path}`,options);let body={};try{body=await response.json()}catch{}if(!response.ok){if(response.status===402&&(body.code==='SUBSCRIPTION_EXPIRED'||body.code==='SUBSCRIPTION_SUSPENDED')){window.dispatchEvent(new CustomEvent(SUBSCRIPTION_BLOCKED_EVENT,{detail:body}))}const error=new Error(body.detail||body.message||'Request failed');Object.assign(error,body);throw error}return body}catch(error){if(error.name==='AbortError')throw new Error('Tally did not complete the request within the allowed time. Check Tally for an open dialog before retrying.');throw error}}
+async function request(path, options={}){try{const response=await authenticatedFetch(`${BASE}${path}`,options);let body={};try{body=await response.json()}catch{}if(!response.ok){if(response.status===402&&(body.code==='SUBSCRIPTION_EXPIRED'||body.code==='SUBSCRIPTION_SUSPENDED')){window.dispatchEvent(new CustomEvent(SUBSCRIPTION_BLOCKED_EVENT,{detail:body}))}const error=new Error(body.detail||body.message||'Request failed');Object.assign(error,body);throw error}return body}catch(error){if(error.name==='AbortError')throw new Error('Tally did not complete the request within the allowed time. Check Tally for an open dialog before retrying.');if(error instanceof TypeError)throw new Error('Cannot reach the GST server. Make sure the backend is running (python manage.py runserver 127.0.0.1:8000) and try again.');throw error}}
 export function uploadGSTFile({returnType,returnPeriod,file}){const data=new FormData();data.append('return_type',returnType);data.append('return_period',returnPeriod);data.append('file',file);return request('/import/',{method:'POST',body:data})}
 export function previewGSTFile({returnType,file,sheetName}){const data=new FormData();data.append('return_type',returnType);data.append('file',file);if(sheetName)data.append('sheet_name',sheetName);return request('/preview/',{method:'POST',body:data})}
 export const getImportBatch=id=>request(`/batches/${id}/`)
@@ -72,3 +72,6 @@ export const getMyProfile=()=>request('/me/profile/')
 export const updateMyProfile=payload=>request('/me/profile/',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
 export const changeMyPassword=(currentPassword,newPassword)=>request('/me/change-password/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:currentPassword,new_password:newPassword})})
 export const getSupportContact=()=>request('/support-contact/')
+
+export const confirmDeviceTransfer=body=>request('/license/device-transfer/confirm/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+export const cancelDeviceTransfer=body=>request('/license/device-transfer/cancel/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})

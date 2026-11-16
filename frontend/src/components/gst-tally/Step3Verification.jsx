@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import LoadingButton from '../common/LoadingButton'
+import DeviceTransferDialog from './DeviceTransferDialog'
 import { step3Ready, step3Rows } from '../../utils/step3Verification'
 
 export default function Step3Verification({ companyInfo, companyResult, licenseResult, confirmLoading, confirmDone, onSelectGstin, onConfirmMasters, onRetryLicense }) {
   const [visible, setVisible] = useState(true)
-  useEffect(() => setVisible(true), [licenseResult, companyResult])
+  const [transferDismissed, setTransferDismissed] = useState(false)
+  useEffect(() => { setVisible(true); setTransferDismissed(false) }, [licenseResult, companyResult])
   const needsPick = companyInfo?.error === 'MULTIPLE_COMPANY_GSTINS' && !companyResult
   if (!licenseResult && !needsPick) return null
   const complete = step3Ready(licenseResult) && companyResult?.company_details_saved === true && companyResult?.company_verified === true
@@ -16,7 +18,9 @@ export default function Step3Verification({ companyInfo, companyResult, licenseR
   }
   const title = needsPick ? 'Select Company GSTIN' : !companyResult ? 'Verifying company details...' : complete ? 'Verification Complete' : 'Verification Failed'
   const showConnectionHelp = errors.some(error => ['TALLY_NOT_CONNECTED', 'TALLY_LICENSE_DATA_UNAVAILABLE'].includes(error.code))
+  const transferOffer = licenseResult?.device_transfer?.transfer_available && !transferDismissed ? licenseResult.device_transfer : null
   return <>
+    {transferOffer && <DeviceTransferDialog offer={transferOffer} onDone={() => { setTransferDismissed(true); onRetryLicense?.() }} onCancel={() => setTransferDismissed(true)} />}
     {visible && createPortal(<div className="step3-verification-overlay">
       <section className="step3-verification" role="dialog" aria-modal="true" aria-label={title}>
         <header className="step3-header">
@@ -66,9 +70,11 @@ const errorTitles = {
   COMPANY_GSTIN_MISMATCH: 'Incorrect Company Opened',
   TALLY_SERIAL_MISMATCH: 'Incorrect Tally License In Use',
   PRODUCT_LICENSE_NOT_CONFIGURED: 'Tally License Not Configured',
+  LICENSE_ASSIGNED_TO_ANOTHER_ACCOUNT: 'License Assigned to Another Account',
   PRODUCT_LIMIT_REACHED: 'Product Limit Reached',
   DEVICE_LIMIT_REACHED: 'Device Limit Reached',
   DEVICE_NOT_AUTHORIZED: 'Device Not Authorized',
   TALLY_NOT_CONNECTED: 'Tally Not Connected',
   TALLY_LICENSE_DATA_UNAVAILABLE: 'Tally License Could Not Be Read',
+  NEXUS_LICENSE_NOT_AUTHORIZED: 'License Not Authorized',
 }

@@ -6,7 +6,7 @@ from .views import (BatchCompanyView, BatchDetailView, BatchListView, BatchParti
                     TallyImportJobPauseView, TallyImportJobResumeView, TallyImportJobStatusView, TallyImportView, TallyLicenseView,
                     ProductLicenseActivateView, ProductLicenseHeartbeatView, ProductLicensePreImportCheckView, ProductLicenseVerifyView,
                     TallyMastersView, TallyVoucherCorrectionView, TallyVoucherPreviewView,
-                    LocalTallyAgentProvisionView, LocalTallyAgentHeartbeatView, LocalTallyAgentStatusView, LocalTallyAgentNextJobView, LocalTallyAgentJobResultView)
+                    LocalTallyAgentProvisionView, DeviceTransferPreviewView, DeviceTransferConfirmView, DeviceTransferCancelView, LocalTallyAgentHeartbeatView, LocalTallyAgentStatusView, LocalTallyAgentNextJobView, LocalTallyAgentJobResultView)
 
 urlpatterns = [
     path("preview/", SourcePreviewView.as_view()), path("import/", ImportView.as_view()),
@@ -30,6 +30,9 @@ urlpatterns = [
     path("tally-import/jobs/<str:job_id>/", TallyImportJobStatusView.as_view()),
     path("tally-import/jobs/<str:job_id>/pause/", TallyImportJobPauseView.as_view()),
     path("tally-import/jobs/<str:job_id>/resume/", TallyImportJobResumeView.as_view()),
+    path("license/device-transfer/preview/", DeviceTransferPreviewView.as_view()),
+    path("license/device-transfer/confirm/", DeviceTransferConfirmView.as_view()),
+    path("license/device-transfer/cancel/", DeviceTransferCancelView.as_view()),
     path("license/activate/", ProductLicenseActivateView.as_view()),
     path("license/verify/", ProductLicenseVerifyView.as_view()),
     path("license/heartbeat/", ProductLicenseHeartbeatView.as_view()),

@@ -131,6 +131,12 @@ export async function authenticatedFetch(url, options = {}) {
       expireSession(await errorCodeOf(response) === 'user_not_found' ? USER_NOT_FOUND_MESSAGE : '')
     }
   }
+  if (response.status === 403) {
+    try {
+      const body = await response.clone().json()
+      if (body.code === 'DEVICE_TRANSFERRED') expireSession(body.detail)
+    } catch { /* not JSON */ }
+  }
   return response
 }
 

@@ -1,4 +1,7 @@
 #define MyAppName "GSTR2Tally Connector"
+#ifndef OutputName
+  #define OutputName "SaiInfosys-GSTR2Tally-Setup"
+#endif
 #ifndef MyAppVersion
   #define MyAppVersion "1.0.0"
 #endif
@@ -18,7 +21,8 @@ DisableReadyPage=yes
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-OutputBaseFilename=GSTR2TallyConnectorSetup
+OutputBaseFilename={#OutputName}
+PrivilegesRequiredOverridesAllowed=commandline
 Compression=lzma
 SolidCompression=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -36,7 +40,7 @@ Name: "{userprograms}\GSTR2Tally Connector"; Filename: "{app}\{#MyAppExeName}"
 ; Start immediately after the one normal installation. The executable is
 ; windowless and also starts automatically at each subsequent Windows sign-in.
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Start GSTR2Tally Connector"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Start GSTR2Tally Connector"; Flags: nowait runasoriginaluser
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\GSTR2TallyConnector"

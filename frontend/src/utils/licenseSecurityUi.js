@@ -6,6 +6,14 @@ export function licenseFailureUi(result = {}) {
   // never fix it, so this always wins regardless of which endpoint (the
   // dedicated verify call vs a pre-import check) reported it, before the
   // generic PRE_IMPORT_LICENSE_FAILED wrapper below would otherwise hide it.
+  if (result.verification_result === 'LICENSE_ASSIGNED_TO_ANOTHER_ACCOUNT') {
+    return {
+      title: 'License Assigned to Another Account',
+      detail: 'This Tally serial is registered to a different account. Sign in with the owning account or ask your administrator to transfer the license. No vouchers were sent to Tally.',
+      actions: ['Contact Administrator'],
+      tone: 'error',
+    }
+  }
   if (result.verification_result === 'PRODUCT_LICENSE_NOT_CONFIGURED') {
     return {
       title: 'License Setup Required',

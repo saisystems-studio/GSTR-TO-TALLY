@@ -846,8 +846,7 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   // Step 6 only -- the other 5 steps keep their existing single-line header.
   const stepSubtitle = !showProfile && activeStep === 'import' ? 'Send validated vouchers to the verified Tally company' : ''
 
-  return <AppShell user={user} activeStep={activeStep} stepNumber={showProfile ? null : stepNumber} stepLabel={showProfile ? 'My Profile' : stepLabel} stepSubtitle={stepSubtitle} batchId={batch?.id} reachableIndex={reachableIndex} onHome={onLogout} onNavigate={go} onLogout={onLogout} onProfile={() => setShowProfile(true)} profileActive={showProfile} canGoBack={showProfile || screen !== 'upload'} onBack={showProfile ? () => setShowProfile(false) : back} subscription={subscription}>
-    <ConnectorStatusBanner status={connectorStatus} />
+  return <AppShell user={user} activeStep={activeStep} stepNumber={showProfile ? null : stepNumber} stepLabel={showProfile ? 'My Profile' : stepLabel} stepSubtitle={stepSubtitle} batchId={batch?.id} reachableIndex={reachableIndex} onHome={onLogout} onNavigate={go} onLogout={onLogout} onProfile={() => setShowProfile(true)} profileActive={showProfile} canGoBack={showProfile || screen !== 'upload'} onBack={showProfile ? () => setShowProfile(false) : back} subscription={subscription} tallyIndicator={<TallyConnectionIndicator status={connectorStatus} />}>
     {showProfile && <ProfileScreen />}
     {!showProfile && screen === 'upload' && <UploadScreen returnType={returnType} fileFormat={fileFormat} file={file} fileError={fileError} loading={busy === 'import-file'} phase={phase} processingStartedAt={processingStartedAt} processingBackendDone={processingBackendDone} overlayClosing={overlayClosing} processingError={processingError} onDismissProcessingError={() => setProcessingError('')} onReturnType={chooseReturnType} onFile={chooseFile} onImport={startImport} fileInputRef={fileInputRef} />}
     {!showProfile && screen === 'preview' && <PreviewScreen preview={preview} batch={batch} tableLoading={previewLoading} tableProcessingStartedAt={previewProcessingStartedAt} tableError={previewError} onRetryPreview={() => batch?.id && loadBatchPreview(batch.id)} onLoadPage={options => batch?.id && loadBatchPreview(batch.id, options)} loading={busy === 'parties'} phase={phase} onProceed={proceedFromPreview} />}
@@ -892,7 +891,30 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   </AppShell>
 }
 
-function ConnectorStatusBanner({ status }) {
+// Small floating top-right status button that replaces the old always-visible
+// connection card -- it takes no page layout space (fixed positioning) and
+// only opens the real connection UI (ConnectorStatusPanel, logic untouched)
+// in a modal when clicked.
+function TallyConnectionIndicator({ status }) {
+  const [open, setOpen] = useState(false)
+  const ready = status?.status === 'Ready to Import'
+  const connectorDetected = Boolean(status?.connected || status?.status === 'Connecting to Tally...')
+  const dotState = ready ? 'is-ready' : connectorDetected ? 'is-connecting' : 'is-offline'
+  return <>
+    <button type="button" className="tally-connect-fab" onClick={() => setOpen(true)} aria-haspopup="dialog">
+      <span className={`tally-connect-dot ${dotState}`} aria-hidden="true" />
+      <span>Connect Tally</span>
+    </button>
+    {open && <div className="modal-backdrop" onMouseDown={event => event.target === event.currentTarget && setOpen(false)}>
+      <div className="modal tally-connect-modal" role="dialog" aria-modal="true" aria-label="Tally Connection">
+        <div className="modal-head"><h2>Tally Connection</h2><button type="button" onClick={() => setOpen(false)} aria-label="Close">×</button></div>
+        <ConnectorStatusPanel status={status} />
+      </div>
+    </div>}
+  </>
+}
+
+function ConnectorStatusPanel({ status }) {
   const label = status?.status || 'Connector Required'
   const ready = label === 'Ready to Import'
   const connectorDetected = Boolean(status?.connected || status?.status === 'Connecting to Tally...')
@@ -900,7 +922,6 @@ function ConnectorStatusBanner({ status }) {
   const downloadUrl = status?.download_url || '/gstr2tally/downloads/GSTR2TallyConnectorSetup.exe'
   if (!connectorDetected) {
     return <section className="connector-required-card" role="status" aria-live="polite">
-      <h2>Tally Connection</h2>
       <strong>Connector Not Detected</strong>
       <p>{downloadStarted ? 'Open the downloaded setup and click Install. GSTR2TALLY will connect automatically.' : 'Connect GSTR2TALLY with TallyPrime in one simple installation.'}</p>
       <a className="connector-download-button" href={downloadUrl} download onClick={() => setDownloadStarted(true)}>Connect Tally</a>

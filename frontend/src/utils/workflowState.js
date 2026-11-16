@@ -152,6 +152,14 @@ export function licenseVerificationStatus(status) {
       detail: 'Check your Tally connection and try again.',
     }
   }
+  if (code === 'LICENSE_ASSIGNED_TO_ANOTHER_ACCOUNT') {
+    return {
+      label: 'Blocked',
+      tone: 'error',
+      title: 'License Assigned to Another Account',
+      detail: 'This Tally serial is registered to a different account. Sign in with that account or ask your administrator to transfer the license.',
+    }
+  }
   if (code === 'PRODUCT_LICENSE_NOT_CONFIGURED') {
     return {
       label: 'Blocked',

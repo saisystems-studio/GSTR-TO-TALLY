@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Toast from '../components/common/Toast.jsx'
 import LoadingButton from '../components/common/LoadingButton.jsx'
 import { clearSession, loginAccount, registerAccount, requestPasswordResetCode, resetPasswordWithCode } from '../services/authApi.js'
 import { normalizeContactNumber, normalizeLoginIdentifier, validateLogin, validatePasswordReset, validateRegistration } from '../utils/authForms.js'
+import * as nexus from '../services/nexusApi.js'
 import '../styles/gst-tally.css'
 
 const initialRegister = {
@@ -47,6 +48,40 @@ export default function Login({ onLogin, notice }) {
   const [resetForm, setResetForm] = useState({ code: '', new_password: '', confirm_password: '' })
   const [showResetPassword, setShowResetPassword] = useState(false)
 
+  // Nexus mode (central licensing). When disabled every handler below keeps
+  // the original local behaviour untouched.
+  const [nexusOn, setNexusOn] = useState(false)
+  const [tally, setTally] = useState({ detected: false, message: 'Checking TallyPrime…' })
+  const [act, setAct] = useState({ step: 'request', user_id: '', activation_key: '', ticket: '', message: '' })
+  const [pwChange, setPwChange] = useState({ ticket: '', current_password: '', new_password: '' })
+  const nexusLoaded = useRef(false)
+  useEffect(() => {
+    if (nexusLoaded.current) return
+    nexusLoaded.current = true
+    nexus.getNexusConfig().then(config => setNexusOn(Boolean(config.enabled)))
+  }, [])
+  // The connector opens the app with #connector=<enrollment>.<proof>; bind this browser to it so the
+  // verified Tally serial can be shown at registration (before any account exists).
+  useEffect(() => {
+    if (!nexusOn) return
+    const match = /connector=([0-9a-f-]{36})\.([A-Za-z0-9_-]+)/i.exec(window.location.hash || '')
+    if (match) nexus.pairConnector(match[1], match[2]).then(() => detectSerial()).catch(error => setTally({ detected: false, message: error.message || 'Connector pairing failed. Restart the connector and retry.' }))
+  }, [nexusOn])
+  const detectSerial = () => { setTally({ detected: false, message: 'Checking TallyPrime…' }); nexus.detectTallySerial().then(setTally).catch(error => setTally({ detected: false, message: error.message || 'Unable to reach the server.' })) }
+  useEffect(() => { if (nexusOn && mode === 'register') detectSerial() }, [nexusOn, mode])
+  // While the registration page is open and Tally/the connector is not detected yet, quietly re-check every
+  // 5 seconds so the serial fills in by itself as soon as TallyPrime/the connector comes online.
+  useEffect(() => {
+    if (!(nexusOn && mode === 'register') || tally.detected) return undefined
+    const timer = setInterval(() => { nexus.detectTallySerial().then(result => { setTally(result) }).catch(() => {}) }, 5000)
+    return () => clearInterval(timer)
+  }, [nexusOn, mode, tally.detected])
+  // Deep link support: ?user_id=...&code=... pre-fills Activate User.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    if (q.get('user_id') && q.get('activate') === '1') { setAct(a => ({ ...a, user_id: q.get('user_id') })); setMode('activate') }
+  }, [])
+
   const notify = (message, kind = 'success') => setToast({ message, kind })
   useEffect(() => { if (notice) notify(notice, 'error') }, [notice])
 
@@ -64,11 +99,22 @@ export default function Login({ onLogin, notice }) {
   }
   const submitRegister = async event => {
     event.preventDefault()
-    const nextErrors = validateRegistration(register)
+    const nextErrors = nexusOn ? validateRegistration({ ...register, password: 'x'.repeat(8), confirm_password: 'x'.repeat(8) }) : validateRegistration(register)
+    if (nexusOn && !tally.detected) { notify(tally.message, 'error'); return }
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
     setBusy(true)
     try {
+      if (nexusOn) {
+        const result = await nexus.nexusRegister({ name: register.full_name.trim(), email: register.email.trim(), contact_number: register.contact_number })
+        setLogin(current => ({ ...current, identifier: result.user_id || tally.tally_serial, password: '' }))
+        setRegister(initialRegister)
+        const mailFailed = Boolean(result.welcome_email) && result.welcome_email !== 'submitted'
+        const sentTo = result.email_sent_to ? ` (${result.email_sent_to})` : ''
+        notify(mailFailed ? `Account created, but the credentials email${sentTo} could not be sent. Use Resend credentials on the sign-in page, or contact support.` : (result.message || `Registered. Check your email${sentTo} for your temporary password.`), mailFailed ? 'error' : 'success')
+        switchMode('login')
+        return
+      }
       await registerAccount({
         username: deriveUsername(register.email),
         email: register.email.trim(),
@@ -91,15 +137,17 @@ export default function Login({ onLogin, notice }) {
   }
   const submitLogin = async event => {
     event.preventDefault()
-    const nextErrors = validateLogin(login)
+    const nextErrors = nexusOn ? ({ ...(login.identifier.trim() ? {} : { identifier: 'Enter your User ID.' }), ...(login.password ? {} : { password: 'Password is required.' }) }) : validateLogin(login)
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
     setBusy(true)
     try {
-      const session = await loginAccount(normalizeLoginIdentifier(login.identifier), login.password)
+      const session = nexusOn ? await nexus.nexusLogin(login.identifier.trim(), login.password) : await loginAccount(normalizeLoginIdentifier(login.identifier), login.password)
       onLogin(session?.user || null)
     } catch (error) {
-      notify(error.message || 'Login failed.', 'error')
+      if (error.code === 'password_change_required') { setPwChange({ ticket: error.ticket, current_password: login.password, new_password: '' }); switchMode('change') }
+      else if (error.code === 'activation_required' || error.code === 'device_mismatch') { setAct(a => ({ ...a, user_id: login.identifier.trim() })); notify(error.message, 'error'); switchMode('activate') }
+      else notify(error.message || 'Login failed.', 'error')
     } finally {
       setBusy(false)
     }
@@ -114,24 +162,35 @@ export default function Login({ onLogin, notice }) {
     const { name, value } = event.target
     setResetForm(current => ({ ...current, [name]: value }))
   }
-  const submitForgotEmail = async event => {
-    event.preventDefault()
-    if (!forgotEmail.trim() || !forgotEmail.includes('@')) {
-      setErrors({ forgot_email: 'Enter a valid email address.' })
+  const [resendIn, setResendIn] = useState(0)
+  useEffect(() => {
+    if (resendIn <= 0) return undefined
+    const timer = setTimeout(() => setResendIn(value => value - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [resendIn])
+  // Success is announced only after the server confirms the request was accepted; any upstream/mail failure is
+  // shown as an error and the user stays where they are. The wording is the same whether or not the account exists.
+  const sendResetCode = async ({ resend = false } = {}) => {
+    if (!forgotEmail.trim() || (!nexusOn && !forgotEmail.includes('@'))) {
+      setErrors({ forgot_email: nexusOn ? 'Enter your registered email address or Tally Serial Number.' : 'Enter a valid email address.' })
       return
     }
     setErrors({})
     setBusy(true)
     try {
-      await requestPasswordResetCode(forgotEmail.trim().toLowerCase())
-      notify('If this email is registered, a 6-digit verification code has been sent to it.')
+      let result = {}
+      if (nexusOn) result = await nexus.nexusForgot(forgotEmail.trim()); else await requestPasswordResetCode(forgotEmail.trim().toLowerCase())
+      notify(resend ? 'If the account exists, a new code has been emailed. Previous codes no longer work.' : 'If the account exists, a verification code has been emailed to the registered address. It is valid for 10 minutes.')
+      setResendIn(Number(result.retry_after) || 60)
       setForgotStep('code')
     } catch (error) {
-      notify(error.message || 'Unable to send verification code.', 'error')
+      if (error.code === 'resend_too_soon') { setResendIn(Number(error.retry_after) || 60); setForgotStep('code') }
+      notify(error.message || 'Unable to send verification code. Please try again.', 'error')
     } finally {
       setBusy(false)
     }
   }
+  const submitForgotEmail = event => { event.preventDefault(); return sendResetCode() }
   const submitResetPassword = async event => {
     event.preventDefault()
     const nextErrors = validatePasswordReset(resetForm)
@@ -140,7 +199,7 @@ export default function Login({ onLogin, notice }) {
     if (Object.keys(nextErrors).length) return
     setBusy(true)
     try {
-      await resetPasswordWithCode(forgotEmail.trim().toLowerCase(), resetForm.code.trim(), resetForm.new_password)
+      if (nexusOn) await nexus.nexusReset(resetForm.code.trim(), resetForm.new_password, forgotEmail.trim()); else await resetPasswordWithCode(forgotEmail.trim().toLowerCase(), resetForm.code.trim(), resetForm.new_password)
       notify('Password updated. You can now log in with your new password.')
       setLogin({ identifier: forgotEmail, password: '', remember: true })
       switchMode('login')
@@ -150,6 +209,21 @@ export default function Login({ onLogin, notice }) {
       setBusy(false)
     }
   }
+  const run = fn => async event => {
+    event.preventDefault(); setBusy(true)
+    try { await fn() } catch (error) { notify(error.message || 'Request failed.', 'error') } finally { setBusy(false) }
+  }
+  const submitActRequest = run(async () => { await nexus.activateRequestCode(act.user_id.trim()); notify('If the account exists and is licensed, an Activation Key has been emailed to the registered address.'); setAct(a => ({ ...a, step: 'verify' })) })
+  const submitActVerify = run(async () => {
+    const r = await nexus.activateVerify(act.user_id.trim(), act.activation_key.trim())
+    setAct(a => ({ ...a, activation_key: '', ticket: r.ticket, message: r.message, step: r.requires_confirmation ? 'confirm' : 'verify' })) // the key is never kept after verification
+    if (!r.requires_confirmation) { const session = await nexus.activateConfirm(r.ticket, false); onLogin(session?.user || null) }
+  })
+  const submitActConfirm = run(async () => { const session = await nexus.activateConfirm(act.ticket, true); onLogin(session?.user || null) })
+  const submitChangePw = run(async () => {
+    await nexus.nexusChangePassword(pwChange.ticket, pwChange.current_password, pwChange.new_password)
+    notify('Password changed. Please sign in with your new password.'); setLogin(l => ({ ...l, password: '' })); switchMode('login')
+  })
   return <main className="auth-page">
     <header className="auth-topbar">
       <div className="auth-topbar-brand"><span className="brand-mark">GT</span><span>GSTR 2 Tally</span></div>
@@ -169,8 +243,8 @@ export default function Login({ onLogin, notice }) {
                 <p className="auth-card-subtitle auth-card-subtitle-tight">Login to continue your GST import process</p>
               </div>
             </div>
-            <Field label="Email / Phone Number" error={errors.identifier} icon={<MailIcon />}>
-              <input name="identifier" placeholder="Enter email address or phone number" value={login.identifier} onChange={updateLogin} autoComplete="username" />
+            <Field label={nexusOn ? 'User ID (Tally Serial Number)' : 'Email / Phone Number'} error={errors.identifier} icon={<MailIcon />}>
+              <input name="identifier" placeholder={nexusOn ? 'Enter User ID' : 'Enter email address or phone number'} value={login.identifier} onChange={updateLogin} autoComplete="username" />
             </Field>
             <PasswordField label="Password" name="password" value={login.password} visible={showPassword} onVisible={() => setShowPassword(value => !value)} onChange={updateLogin} error={errors.password} autoComplete="current-password" icon={<LockIcon />} />
             <div className="auth-row">
@@ -182,6 +256,10 @@ export default function Login({ onLogin, notice }) {
             </LoadingButton>
             <div className="auth-divider" role="presentation"><span>OR</span></div>
             <p className="auth-switch">Don't have an account? <button type="button" onClick={() => switchMode('register')}>Register here</button></p>
+            {nexusOn && <p className="auth-switch"><button type="button" onClick={() => switchMode('activate')}>Activate User</button> · <button type="button" onClick={async () => {
+              if (!login.identifier.trim() || login.identifier.includes('@')) { notify('Enter your Tally Serial Number (User ID) first.', 'error'); return }
+              try { await nexus.nexusResendCredentials(login.identifier.trim()); notify('If this account has never signed in, a new temporary password has been emailed.') } catch (error) { notify(error.message || 'Unable to resend credentials.', 'error') }
+            }}>Resend credentials</button></p>}
           </form>}
 
           {mode === 'register' && <form className="auth-form auth-form-panel" key="register" onSubmit={submitRegister} noValidate>
@@ -195,19 +273,52 @@ export default function Login({ onLogin, notice }) {
             <Field label="Full Name" error={errors.full_name} icon={<UserIcon />}><input name="full_name" placeholder="Enter full name" value={register.full_name} onChange={updateRegister} autoComplete="name" /></Field>
             <Field label="Email" error={errors.email} icon={<MailIcon />}><input name="email" type="email" placeholder="Enter email address" value={register.email} onChange={updateRegister} autoComplete="email" /></Field>
             <Field label="Contact Number" error={errors.contact_number || errors.phone_number} icon={<PhoneIcon />}><input name="contact_number" inputMode="numeric" placeholder="Enter 10 digit mobile number" maxLength={10} value={register.contact_number} onChange={updateRegister} autoComplete="tel" /></Field>
-            <PasswordField label="Password" name="password" value={register.password} visible={showPassword} onVisible={() => setShowPassword(value => !value)} onChange={updateRegister} error={errors.password} autoComplete="new-password" icon={<LockIcon />} />
-            <PasswordField label="Confirm Password" name="confirm_password" value={register.confirm_password} visible={showConfirm} onVisible={() => setShowConfirm(value => !value)} onChange={updateRegister} error={errors.confirm_password} autoComplete="new-password" icon={<LockIcon />} />
+            {nexusOn && <Field label="Tally Serial Number (User ID)" error={!tally.detected ? tally.message : ''}>
+              <input value={tally.tally_serial || ''} readOnly placeholder="Detected automatically from TallyPrime" />
+            </Field>}
+            {nexusOn && !tally.detected && <p className="auth-switch"><button type="button" onClick={detectSerial}>Retry</button></p>}
+            {!nexusOn && <PasswordField label="Password" name="password" value={register.password} visible={showPassword} onVisible={() => setShowPassword(value => !value)} onChange={updateRegister} error={errors.password} autoComplete="new-password" icon={<LockIcon />} />}
+            {!nexusOn && <PasswordField label="Confirm Password" name="confirm_password" value={register.confirm_password} visible={showConfirm} onVisible={() => setShowConfirm(value => !value)} onChange={updateRegister} error={errors.confirm_password} autoComplete="new-password" icon={<LockIcon />} />}
             <LoadingButton className="wide-button auth-gradient-button" loading={busy} type="submit">
               {busy ? <span>Creating account…</span> : <><span>Create Account</span><ArrowRightIcon /></>}
             </LoadingButton>
             <p className="auth-switch">Already have an account? <button type="button" onClick={() => switchMode('login')}>Login here</button></p>
           </form>}
 
+          {mode === 'activate' && <>
+            <h2 className="auth-card-title">Activate User</h2>
+            <p className="auth-card-subtitle">Activate GSTR 2 Tally on this computer.</p>
+            {act.step === 'request' && <form className="auth-form auth-form-panel" onSubmit={submitActRequest} noValidate>
+              <Field label="User ID (Tally Serial Number)"><input value={act.user_id} onChange={e => setAct({ ...act, user_id: e.target.value })} /></Field>
+              <LoadingButton className="wide-button" loading={busy} type="submit">Send Activation Key</LoadingButton>
+              <p className="auth-switch"><button type="button" onClick={() => setAct({ ...act, step: 'verify' })}>I already have an Activation Key</button> · <button type="button" onClick={() => switchMode('login')}>Back to Sign In</button></p>
+            </form>}
+            {act.step === 'verify' && <form className="auth-form auth-form-panel" onSubmit={submitActVerify} noValidate>
+              <Field label="User ID (Tally Serial Number)"><input value={act.user_id} onChange={e => setAct({ ...act, user_id: e.target.value })} /></Field>
+              <Field label="Activation Key"><input value={act.activation_key} onChange={e => setAct({ ...act, activation_key: e.target.value })} autoComplete="off" /></Field>
+              <LoadingButton className="wide-button" loading={busy} type="submit">Verify and Activate</LoadingButton>
+              <p className="auth-switch"><button type="button" onClick={() => setAct({ ...act, step: 'request' })}>Resend Activation Key</button> · <button type="button" onClick={() => switchMode('login')}>Back to Sign In</button></p>
+            </form>}
+            {act.step === 'confirm' && <form className="auth-form auth-form-panel" onSubmit={submitActConfirm}>
+              <h3>License Already Active on Another Device</h3>
+              <p>Your GSTR2Tally license is currently active on another laptop. Do you want to log out from the previous laptop and activate this laptop?</p>
+              <LoadingButton className="wide-button" loading={busy} type="submit">OK – Activate This Laptop</LoadingButton>
+              <p className="auth-switch"><button type="button" onClick={() => { setAct({ ...act, step: 'request', ticket: '' }); switchMode('login') }}>Cancel</button></p>
+            </form>}
+          </>}
+
+          {mode === 'change' && <form className="auth-form auth-form-panel" onSubmit={submitChangePw} noValidate>
+            <h2 className="auth-card-title">Set a New Password</h2>
+            <p className="auth-card-subtitle">Replace your temporary password to continue.</p>
+            <Field label="New Password"><input type="password" value={pwChange.new_password} onChange={e => setPwChange({ ...pwChange, new_password: e.target.value })} autoComplete="new-password" /></Field>
+            <LoadingButton className="wide-button" loading={busy} type="submit">Change Password</LoadingButton>
+          </form>}
+
           {mode === 'forgot' && <>
             <h2 className="auth-card-title">{HEADINGS.forgot.title}</h2>
             <p className="auth-card-subtitle">{forgotStep === 'email' ? HEADINGS.forgot.subtitle : 'Enter the code we emailed you and choose a new password.'}</p>
             {forgotStep === 'email' ? <form className="auth-form auth-form-panel" key="forgot-email" onSubmit={submitForgotEmail} noValidate>
-              <Field label="Registered Email" error={errors.forgot_email}><input type="email" value={forgotEmail} onChange={event => setForgotEmail(event.target.value)} autoComplete="email" /></Field>
+              <Field label={nexusOn ? 'Registered Email or Tally Serial Number' : 'Registered Email'} error={errors.forgot_email}><input type={nexusOn ? 'text' : 'email'} value={forgotEmail} onChange={event => setForgotEmail(event.target.value)} autoComplete={nexusOn ? 'off' : 'email'} /></Field>
               <LoadingButton className="wide-button" loading={busy} type="submit">Send Verification Code</LoadingButton>
               <p className="auth-switch"><button type="button" onClick={() => switchMode('login')}>Back to Login</button></p>
             </form> : <form className="auth-form auth-form-panel" key="forgot-code" onSubmit={submitResetPassword} noValidate>
@@ -216,7 +327,7 @@ export default function Login({ onLogin, notice }) {
               <PasswordField label="Confirm New Password" name="confirm_password" value={resetForm.confirm_password} visible={showResetPassword} onVisible={() => setShowResetPassword(value => !value)} onChange={updateResetForm} error={errors.confirm_password} autoComplete="new-password" />
               <LoadingButton className="wide-button" loading={busy} type="submit">Reset Password</LoadingButton>
               <p className="auth-switch">
-                <button type="button" onClick={() => setForgotStep('email')}>Resend Code</button> · <button type="button" onClick={() => switchMode('login')}>Back to Login</button>
+                <button type="button" disabled={busy || resendIn > 0} onClick={() => sendResetCode({ resend: true })}>{resendIn > 0 ? `Resend Code (${resendIn}s)` : 'Resend Code'}</button> · <button type="button" onClick={() => switchMode('login')}>Back to Login</button>
               </p>
             </form>}
           </>}

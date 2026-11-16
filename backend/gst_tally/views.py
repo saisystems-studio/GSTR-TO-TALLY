@@ -1008,8 +1008,11 @@ class TallyImportView(APIView):
         if agent and (agent.device.license_id != batch.product_license_id or
                       not agent.tally_reachable or agent.detected_company_gstin != batch.company_gstin):
             agent = None
+        from django.utils import timezone as _tz
+        if agent and not (agent.last_seen_at and (_tz.now() - agent.last_seen_at).total_seconds() <= 90):
+            agent = None
         if getattr(settings, "TALLY_LOCAL_AGENT_REQUIRED", False) and not agent:
-            return Response({"code": "TALLY_AGENT_OFFLINE", "message": "Local Tally Agent is offline or the registered company is not open."}, status=409)
+            return Response({"code": "TALLY_AGENT_OFFLINE", "message": "Tally connector is offline, Tally is not running, or the wrong company is open. No vouchers were sent."}, status=409)
         job, outcome = start_import_job(batch, request_id=request_id, local_agent=agent)
         # serialize_job() always carries the job row's OWN status (RUNNING,
         # PENDING, ...) under the same "status" key -- it must be spread
@@ -1180,6 +1183,42 @@ class ProductLicensePreImportCheckView(APIView):
         return Response(result, status=status_code)
 
 
+def _transfer_args(request):
+    data = request.data
+    return dict(
+        fingerprint=data.get("device_fingerprint", "") or request.headers.get("X-Device-ID", ""),
+        device_name=data.get("device_name", "") or request.headers.get("X-Device-Name", ""),
+        serial=data.get("tally_serial", ""),
+    )
+
+
+class DeviceTransferPreviewView(APIView):
+    def post(self, request):
+        from .services import device_transfer
+        return Response(device_transfer.preview(request.user, **_transfer_args(request)))
+
+
+class DeviceTransferConfirmView(APIView):
+    def post(self, request):
+        from .services import device_transfer
+        args = _transfer_args(request)
+        try:
+            return Response(device_transfer.confirm(
+                request.user, args["fingerprint"], args["device_name"], request.data.get("password", ""),
+                serial=args["serial"], ip=request.META.get("REMOTE_ADDR", ""),
+                windows_version=str(request.data.get("windows_version", "")), app_version=str(request.data.get("app_version", ""))))
+        except device_transfer.TransferError as exc:
+            return Response({"code": exc.code, "detail": exc.message}, status=exc.status)
+
+
+class DeviceTransferCancelView(APIView):
+    def post(self, request):
+        from .services import device_transfer
+        args = _transfer_args(request)
+        return Response(device_transfer.cancel(request.user, args["fingerprint"], args["device_name"],
+                                               args["serial"], ip=request.META.get("REMOTE_ADDR", "")))
+
+
 class MyProfileView(APIView):
     """Read-only customer-side profile: identity, company, license, device --
     the single place a customer can see everything about their own license.
@@ -1232,7 +1271,7 @@ class MyProfileView(APIView):
                 "email": user.email,
                 "phone": profile.phone_number if profile else "",
                 "role": "Customer",
-                "has_password": user.has_usable_password(),
+                "has_password": user.has_usable_password() or user.nexus_links.exists(),  # Nexus accounts always have a password (held by Nexus)
             },
             "company": {
                 "company_name": company.company_name,
@@ -1321,6 +1360,18 @@ class ChangePasswordView(APIView):
         user = request.user
         current_password = str(request.data.get("current_password", ""))
         new_password = str(request.data.get("new_password", ""))
+        if request.auth and request.auth.get("nexus_link"):
+            # Nexus-linked customer: the password lives in Nexus. Change it there (this session stays signed in; other devices end).
+            from nexus_auth.views import current_link
+            from nexus_auth.client import NexusError, call
+            link, token = current_link(request)
+            if not link:
+                return Response({"detail": "Your session has ended. Please sign in again.", "code": "session_revoked"}, status=401)
+            try:
+                call("POST", "auth/change-password/", {"current_password": current_password, "new_password": new_password}, token)
+            except NexusError as exc:
+                return Response({"detail": exc.message, "code": exc.code, "errors": exc.errors or {}}, status=exc.status if exc.status != 401 else 400)
+            return Response({"detail": "Password changed successfully."})
         if len(new_password) < 8:
             return Response({"detail": "New password must be at least 8 characters."}, status=400)
         if user.has_usable_password() and not user.check_password(current_password):

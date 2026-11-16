@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import GstTallyImport from './pages/GstTallyImport.jsx'
 import Login from './pages/Login.jsx'
+import { startNexusSession } from './services/nexusApi.js'
 import SubscriptionExpired from './pages/SubscriptionExpired.jsx'
 import SuperAdminApp from './superadmin/SuperAdminApp.jsx'
-import { clearSession, signOut, validateSession } from './services/authApi.js'
+import { authenticatedFetch, clearSession, signOut, validateSession } from './services/authApi.js'
 import { getMySubscription } from './services/subscriptionApi.js'
 import { pairConnectorEnrollment } from './services/gstTallyApi.js'
 
@@ -46,11 +47,13 @@ function CustomerApp() {
       const nextState = user ? { status: 'authenticated', user } : { status: 'anonymous', user: null }
       setAuthState(nextState)
       if (user) {
+        // Keep the #connector=<id>.<proof> pairing hash: the connector's link must survive this redirect so the
+        // browser can pair (previously it was dropped here, so registration always said "Connector not running").
         if (!/^\/gst-tally(?:\/.*)?$/.test(window.location.pathname)) {
-          window.history.replaceState({}, '', '/gst-tally')
+          window.history.replaceState({}, '', '/gst-tally' + window.location.hash)
         }
       } else {
-        window.history.replaceState({}, '', '/login')
+        window.history.replaceState({}, '', '/login' + window.location.hash)
       }
     }).catch(() => {
       if (cancelled) return
@@ -105,6 +108,11 @@ function CustomerApp() {
     window.addEventListener('gst-subscription-blocked', onBlocked)
     return () => window.removeEventListener('gst-subscription-blocked', onBlocked)
   }, [])
+
+  useEffect(() => {
+    if (authState.status !== 'authenticated' || !authState.user?.tally_serial) return undefined
+    return startNexusSession(authenticatedFetch, () => { setLoginNotice('This session has ended. Please sign in again.'); setAuthState({ status: 'anonymous', user: null }) })
+  }, [authState.status, authState.user?.tally_serial])
 
   const login = user => {
     setLoginNotice('')

@@ -1,0 +1,3025 @@
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 16, 2026 - 12:31:05
+Django version 5.2.17, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>4</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>4</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>4</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>4</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33EUJPM9654K1ZX', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33EUJPM9654K1ZX
+Can Import: True
+Error Code: 
+Error Message: 
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== TALLY FINANCIAL PERIOD ===
+from = 2025-04-01
+to = 2026-03-31
+formatted = 01 Apr 2025 - 31 Mar 2026
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>4</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>4</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>4</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>4</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33EUJPM9654K1ZX', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33EUJPM9654K1ZX
+Can Import: True
+Error Code: 
+Error Message: 
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>5</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>4</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>5</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>5</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33AFHPM6103Q1Z8', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33AFHPM6103Q1Z8
+Can Import: True
+Error Code: 
+Error Message: 
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>5</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>4</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>5</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>5</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+=== TALLY FINANCIAL PERIOD ===
+from = 2025-04-01
+to = 2026-03-31
+formatted = 01 Apr 2025 - 31 Mar 2026
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33AFHPM6103Q1Z8', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33AFHPM6103Q1Z8
+Can Import: True
+Error Code: 
+Error Message: 
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>5</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>4</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>5</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>5</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33AFHPM6103Q1Z8', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33AFHPM6103Q1Z8
+Can Import: True
+Error Code: 
+Error Message: 
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>5</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>4</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>5</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>5</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+=== TALLY FINANCIAL PERIOD ===
+from = 2025-04-01
+to = 2026-03-31
+formatted = 01 Apr 2025 - 31 Mar 2026
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33AFHPM6103Q1Z8', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33AFHPM6103Q1Z8
+Can Import: True
+Error Code: 
+Error Message: 
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 16, 2026 - 12:58:33
+Django version 5.2.17, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 16, 2026 - 13:00:14
+Django version 5.2.17, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 16, 2026 - 13:04:45
+Django version 5.2.17, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 16, 2026 - 13:05:54
+Django version 5.2.17, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 16, 2026 - 13:15:12
+Django version 5.2.17, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 16, 2026 - 13:15:56
+Django version 5.2.17, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 16, 2026 - 14:01:56
+Django version 5.2.17, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>0</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>0</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>0</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>0</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33AFHPM6103Q1Z8', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33AFHPM6103Q1Z8
+Can Import: True
+Error Code: 
+Error Message: 
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>0</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>0</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>0</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>0</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33AFHPM6103Q1Z8', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY FINANCIAL PERIOD ===
+from = 2025-04-01
+to = 2026-03-31
+formatted = 01 Apr 2025 - 31 Mar 2026
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33AFHPM6103Q1Z8
+Can Import: True
+Error Code: 
+Error Message: 
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 16, 2026 - 15:33:28
+Django version 5.2.17, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+Performing system checks...
+
+System check identified no issues (0 silenced).
+November 16, 2026 - 16:01:30
+Django version 5.2.17, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>0</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>0</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>0</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>0</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33AFHPM6103Q1Z8', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33AFHPM6103Q1Z8
+Can Import: True
+Error Code: 
+Error Message: 
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>0</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>0</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>0</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>0</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33AFHPM6103Q1Z8', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY FINANCIAL PERIOD ===
+from = 2025-04-01
+to = 2026-03-31
+formatted = 01 Apr 2025 - 31 Mar 2026
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33AFHPM6103Q1Z8
+Can Import: True
+Error Code: 
+Error Message: 
+=== TALLY FINANCIAL PERIOD ===
+from = 2025-04-01
+to = 2026-03-31
+formatted = 01 Apr 2025 - 31 Mar 2026
+=== PARTY MASTER TRACE ===
+gstin: 33AAACY4945P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AAACY4945P1ZS
+resolved_party_ledger_name: 33AAACY4945P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AABCT7933K1Z4
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AABCT7933K1Z4
+resolved_party_ledger_name: 33AABCT7933K1Z4
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AAICM2723M2ZD
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AAICM2723M2ZD
+resolved_party_ledger_name: 33AAICM2723M2ZD
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABFFR0693G1Z8
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABFFR0693G1Z8
+resolved_party_ledger_name: 33ABFFR0693G1Z8
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABFFR0693G1Z8
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABFFR0693G1Z8
+resolved_party_ledger_name: 33ABFFR0693G1Z8
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABICS9552R1ZF
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABICS9552R1ZF
+resolved_party_ledger_name: 33ABICS9552R1ZF
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABICS9552R1ZF
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABICS9552R1ZF
+resolved_party_ledger_name: 33ABICS9552R1ZF
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABICS9552R1ZF
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABICS9552R1ZF
+resolved_party_ledger_name: 33ABICS9552R1ZF
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ADMPD8819M1Z5
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ADMPD8819M1Z5
+resolved_party_ledger_name: 33ADMPD8819M1Z5
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ADMPD8819M1Z5
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ADMPD8819M1Z5
+resolved_party_ledger_name: 33ADMPD8819M1Z5
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ADMPD8819M1Z5
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ADMPD8819M1Z5
+resolved_party_ledger_name: 33ADMPD8819M1Z5
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ANBPL9307K1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ANBPL9307K1ZY
+resolved_party_ledger_name: 33ANBPL9307K1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ANBPL9307K1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ANBPL9307K1ZY
+resolved_party_ledger_name: 33ANBPL9307K1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ANBPL9307K1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ANBPL9307K1ZY
+resolved_party_ledger_name: 33ANBPL9307K1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33BQQPS7293L1ZU
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33BQQPS7293L1ZU
+resolved_party_ledger_name: 33BQQPS7293L1ZU
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33DXGPP6350E1ZI
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33DXGPP6350E1ZI
+resolved_party_ledger_name: 33DXGPP6350E1ZI
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33FQQPP1071M1ZB
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33FQQPP1071M1ZB
+resolved_party_ledger_name: 33FQQPP1071M1ZB
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33FRWPM7826N1ZP
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33FRWPM7826N1ZP
+resolved_party_ledger_name: 33FRWPM7826N1ZP
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33FRWPM7826N1ZP
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33FRWPM7826N1ZP
+resolved_party_ledger_name: 33FRWPM7826N1ZP
+name_source: GSTIN
+=== MASTER PREPARATION DEBUG ===
+{'eligible_voucher_count': 40, 'required_party_names': ['33AAACY4945P1ZS', '33AABCT7933K1Z4', '33AAICM2723M2ZD', '33AALFC8417G1ZH', '33ABBFA4422C2Z9', '33ABFFR0693G1Z8', '33ABICS9552R1ZF', '33ADMPD8819M1Z5', '33AGHPV2166P1ZS', '33ANBPL9307K1ZY', '33AQEPR4877Q1ZY', '33BQQPS7293L1ZU', '33DXGPP6350E1ZI', '33FQQPP1071M1ZB', '33FRWPM7826N1ZP'], 'required_account_ledgers': ['GST Purchase 12%', 'GST Purchase 18%', 'GST Purchase 28%'], 'required_tax_ledgers': ['Input CGST 14%', 'Input CGST 6%', 'Input CGST 9%', 'Input SGST 14%', 'Input SGST 6%', 'Input SGST 9%'], 'required_other_ledgers': ['Round Off']}
+{'invoice_number': '192', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AAACY4945P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '152.64', 'sgst_amount': '152.64', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '232', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AABCT7933K1Z4', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '154.71', 'sgst_amount': '154.71', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '226', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AAICM2723M2ZD', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '146.34', 'sgst_amount': '146.34', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '247', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '257.22', 'sgst_amount': '257.22', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '227', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '176.40', 'sgst_amount': '176.40', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '239', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '3599.91', 'sgst_amount': '3599.91', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '229', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '175.14', 'sgst_amount': '175.14', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '245', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '480.51', 'sgst_amount': '480.51', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '225', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '15374.79', 'sgst_amount': '15374.79', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '193', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '10237.50', 'sgst_amount': '10237.50', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '209', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '13043.88', 'sgst_amount': '13043.88', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '196', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '8286.12', 'sgst_amount': '8286.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '222', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '18029.88', 'sgst_amount': '18029.88', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '213', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '18696.87', 'sgst_amount': '18696.87', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '231', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABFFR0693G1Z8', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '13392.36', 'sgst_amount': '13392.36', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '234', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABFFR0693G1Z8', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '6293.07', 'sgst_amount': '6293.07', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '197', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABICS9552R1ZF', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '706.32', 'sgst_amount': '706.32', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '199', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABICS9552R1ZF', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '59.04', 'sgst_amount': '59.04', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '202', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ABICS9552R1ZF', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '382.76', 'sgst_amount': '382.76', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '248', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '4556.08', 'sgst_amount': '4556.08', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '248', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '4556.08', 'sgst_amount': '4556.08', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '208', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '2045.26', 'sgst_amount': '2045.26', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '200', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '1960.20', 'sgst_amount': '1960.20', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '206', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '6070.40', 'sgst_amount': '6070.40', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '230', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '7608.96', 'sgst_amount': '7608.96', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '198', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '6070.40', 'sgst_amount': '6070.40', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '223', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '7723.98', 'sgst_amount': '7723.98', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '224', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '4777.47', 'sgst_amount': '4777.47', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '224', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '4777.47', 'sgst_amount': '4777.47', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '191', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ANBPL9307K1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '223.02', 'sgst_amount': '223.02', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '240', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ANBPL9307K1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '623.70', 'sgst_amount': '623.70', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '211', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ANBPL9307K1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '139.50', 'sgst_amount': '139.50', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '214', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '11883.24', 'sgst_amount': '11883.24', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '216', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '15128.12', 'sgst_amount': '15128.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '216', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '15128.12', 'sgst_amount': '15128.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '228', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '7843.05', 'sgst_amount': '7843.05', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '233', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '6666.93', 'sgst_amount': '6666.93', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '235', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '4118.58', 'sgst_amount': '4118.58', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '201', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33BQQPS7293L1ZU', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '9325.26', 'sgst_amount': '9325.26', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '203', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '12', 'party_ledger': '33DXGPP6350E1ZI', 'account_ledger': 'GST Purchase 12%', 'cgst_amount': '5031.12', 'sgst_amount': '5031.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 6%', 'Input SGST 6%', 'Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '203', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33DXGPP6350E1ZI', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '5031.12', 'sgst_amount': '5031.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 6%', 'Input SGST 6%', 'Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '220', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33FQQPP1071M1ZB', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '8818.11', 'sgst_amount': '8818.11', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '220', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33FQQPP1071M1ZB', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '8818.11', 'sgst_amount': '8818.11', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '205', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '14378.87', 'sgst_amount': '14378.87', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '205', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '14378.87', 'sgst_amount': '14378.87', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '194', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '10114.04', 'sgst_amount': '10114.04', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '194', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '10114.04', 'sgst_amount': '10114.04', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+=== TALLY FINANCIAL PERIOD ===
+from = 2025-04-01
+to = 2026-03-31
+formatted = 01 Apr 2025 - 31 Mar 2026
+=== PARTY MASTER PAYLOAD ===
+name: 33AAACY4945P1ZS
+mailing_name: 33AAACY4945P1ZS
+address: 
+state: Tamil Nadu
+country: India
+pincode: 
+gst_registration_type: Regular
+gstin: 33AAACY4945P1ZS
+=== NATIVE TALLY MASTER JSON ===
+{
+  "static_variables": [
+    {
+      "name": "svMstImportFormat",
+      "value": "jsonex"
+    },
+    {
+      "name": "svCurrentCompany",
+      "value": "New"
+    }
+  ],
+  "tallymessage": [
+    {
+      "metadata": {
+        "type": "Ledger",
+        "name": "33AAACY4945P1ZS",
+        "reservedname": "",
+        "action": "alter"
+      },
+      "name": "33AAACY4945P1ZS",
+      "parent": "Sundry Creditors",
+      "taxtype": "Others",
+      "countryofresidence": "India",
+      "isbillwiseon": true,
+      "languagename": [
+        {
+          "name": [
+            {
+              "metadata": true,
+              "type": "String"
+            },
+            "33AAACY4945P1ZS"
+          ],
+          "languageid": " 1033"
+        }
+      ],
+      "partygstin": "33AAACY4945P1ZS",
+      "gstregistrationno": "33AAACY4945P1ZS",
+      "ledstatename": "Tamil Nadu",
+      "gstregistrationtype": "Regular",
+      "ledgstregdetails": [
+        {
+          "applicablefrom": "20250401",
+          "gstin": "33AAACY4945P1ZS",
+          "isothterritoryassessee": "No",
+          "considerpurchaseforexport": "No",
+          "istransporter": "No",
+          "iscommonparty": "No",
+          "gstregistrationtype": "Regular",
+          "state": "Tamil Nadu",
+          "placeofsupply": "Tamil Nadu"
+        }
+      ],
+      "ledmailingdetails": [
+        {
+          "applicablefrom": "20250401",
+          "mailingname": "33AAACY4945P1ZS",
+          "country": "India",
+          "state": "Tamil Nadu"
+        }
+      ]
+    }
+  ]
+}
+=== PARTY MASTER PAYLOAD ===
+name: 33AABCT7933K1Z4
+mailing_name: 33AABCT7933K1Z4
+address: 
+state: Tamil Nadu
+country: India
+pincode: 
+gst_registration_type: Regular
+gstin: 33AABCT7933K1Z4
+=== NATIVE TALLY MASTER JSON ===
+{
+  "static_variables": [
+    {
+      "name": "svMstImportFormat",
+      "value": "jsonex"
+    },
+    {
+      "name": "svCurrentCompany",
+      "value": "New"
+    }
+  ],
+  "tallymessage": [
+    {
+      "metadata": {
+        "type": "Ledger",
+        "name": "33AABCT7933K1Z4",
+        "reservedname": "",
+        "action": "alter"
+      },
+      "name": "33AABCT7933K1Z4",
+      "parent": "Sundry Creditors",
+      "taxtype": "Others",
+      "countryofresidence": "India",
+      "isbillwiseon": true,
+      "languagename": [
+        {
+          "name": [
+            {
+              "metadata": true,
+              "type": "String"
+            },
+            "33AABCT7933K1Z4"
+          ],
+          "languageid": " 1033"
+        }
+      ],
+      "partygstin": "33AABCT7933K1Z4",
+      "gstregistrationno": "33AABCT7933K1Z4",
+      "ledstatename": "Tamil Nadu",
+      "gstregistrationtype": "Regular",
+      "ledgstregdetails": [
+        {
+          "applicablefrom": "20250401",
+          "gstin": "33AABCT7933K1Z4",
+          "isothterritoryassessee": "No",
+          "considerpurchaseforexport": "No",
+          "istransporter": "No",
+          "iscommonparty": "No",
+          "gstregistrationtype": "Regular",
+          "state": "Tamil Nadu",
+          "placeofsupply": "Tamil Nadu"
+        }
+      ],
+      "ledmailingdetails": [
+        {
+          "applicablefrom": "20250401",
+          "mailingname": "33AABCT7933K1Z4",
+          "country": "India",
+          "state": "Tamil Nadu"
+        }
+      ]
+    }
+  ]
+}
+=== PARTY MASTER PAYLOAD ===
+name: 33AALFC8417G1ZH
+mailing_name: 33AALFC8417G1ZH
+address: 
+state: Tamil Nadu
+country: India
+pincode: 
+gst_registration_type: Regular
+gstin: 33AALFC8417G1ZH
+=== NATIVE TALLY MASTER JSON ===
+{
+  "static_variables": [
+    {
+      "name": "svMstImportFormat",
+      "value": "jsonex"
+    },
+    {
+      "name": "svCurrentCompany",
+      "value": "New"
+    }
+  ],
+  "tallymessage": [
+    {
+      "metadata": {
+        "type": "Ledger",
+        "name": "33AALFC8417G1ZH",
+        "reservedname": "",
+        "action": "alter"
+      },
+      "name": "33AALFC8417G1ZH",
+      "parent": "Sundry Creditors",
+      "taxtype": "Others",
+      "countryofresidence": "India",
+      "isbillwiseon": true,
+      "languagename": [
+        {
+          "name": [
+            {
+              "metadata": true,
+              "type": "String"
+            },
+            "33AALFC8417G1ZH"
+          ],
+          "languageid": " 1033"
+        }
+      ],
+      "partygstin": "33AALFC8417G1ZH",
+      "gstregistrationno": "33AALFC8417G1ZH",
+      "ledstatename": "Tamil Nadu",
+      "gstregistrationtype": "Regular",
+      "ledgstregdetails": [
+        {
+          "applicablefrom": "20250401",
+          "gstin": "33AALFC8417G1ZH",
+          "isothterritoryassessee": "No",
+          "considerpurchaseforexport": "No",
+          "istransporter": "No",
+          "iscommonparty": "No",
+          "gstregistrationtype": "Regular",
+          "state": "Tamil Nadu",
+          "placeofsupply": "Tamil Nadu"
+        }
+      ],
+      "ledmailingdetails": [
+        {
+          "applicablefrom": "20250401",
+          "mailingname": "33AALFC8417G1ZH",
+          "country": "India",
+          "state": "Tamil Nadu"
+        }
+      ]
+    }
+  ]
+}
+=== PARTY MASTER PAYLOAD ===
+name: 33FQQPP1071M1ZB
+mailing_name: 33FQQPP1071M1ZB
+address: 
+state: Tamil Nadu
+country: India
+pincode: 
+gst_registration_type: Regular
+gstin: 33FQQPP1071M1ZB
+=== NATIVE TALLY MASTER JSON ===
+{
+  "static_variables": [
+    {
+      "name": "svMstImportFormat",
+      "value": "jsonex"
+    },
+    {
+      "name": "svCurrentCompany",
+      "value": "New"
+    }
+  ],
+  "tallymessage": [
+    {
+      "metadata": {
+        "type": "Ledger",
+        "name": "33FQQPP1071M1ZB",
+        "reservedname": "",
+        "action": "alter"
+      },
+      "name": "33FQQPP1071M1ZB",
+      "parent": "Sundry Creditors",
+      "taxtype": "Others",
+      "countryofresidence": "India",
+      "isbillwiseon": true,
+      "languagename": [
+        {
+          "name": [
+            {
+              "metadata": true,
+              "type": "String"
+            },
+            "33FQQPP1071M1ZB"
+          ],
+          "languageid": " 1033"
+        }
+      ],
+      "partygstin": "33FQQPP1071M1ZB",
+      "gstregistrationno": "33FQQPP1071M1ZB",
+      "ledstatename": "Tamil Nadu",
+      "gstregistrationtype": "Regular",
+      "ledgstregdetails": [
+        {
+          "applicablefrom": "20250401",
+          "gstin": "33FQQPP1071M1ZB",
+          "isothterritoryassessee": "No",
+          "considerpurchaseforexport": "No",
+          "istransporter": "No",
+          "iscommonparty": "No",
+          "gstregistrationtype": "Regular",
+          "state": "Tamil Nadu",
+          "placeofsupply": "Tamil Nadu"
+        }
+      ],
+      "ledmailingdetails": [
+        {
+          "applicablefrom": "20250401",
+          "mailingname": "33FQQPP1071M1ZB",
+          "country": "India",
+          "state": "Tamil Nadu"
+        }
+      ]
+    }
+  ]
+}
+=== MASTER PREPARATION BATCH === 38
+=== MASTER ROW COUNT === 25
+=== MASTER SUMMARY === {'parties': {'required': 15, 'created': 0, 'existing': 15, 'ready': 15, 'failed': 0}, 'accounts': {'required': 3, 'created': 0, 'existing': 3, 'ready': 3, 'failed': 0}, 'tax_ledgers': {'required': 6, 'created': 0, 'existing': 6, 'ready': 6, 'failed': 0}, 'other_ledgers': {'required': 1, 'created': 0, 'existing': 1, 'ready': 1, 'failed': 0}, 'prep_ready': True, 'connected': True, 'company_status': 'Existing'}
+=== MASTER STATUS DEBUG === {'batch_id': 38, 'source_gstin': '33AFHPM6103Q1Z8', 'tally_gstin': '33AFHPM6103Q1Z8', 'company_verified': True, 'tally_connected': True, 'master_preparation_completed': True, 'party_total': 15, 'party_ready': 15, 'account_total': 3, 'account_ready': 3, 'tax_total': 6, 'tax_ready': 6, 'other_total': 1, 'other_ready': 1, 'failed_count': 0, 'blocking_error': None, 'can_continue_to_voucher_preview': True}
+=== TALLY FINANCIAL PERIOD ===
+from = 2025-04-01
+to = 2026-03-31
+formatted = 01 Apr 2025 - 31 Mar 2026
+=== PARTY MASTER TRACE ===
+gstin: 33AAACY4945P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AAACY4945P1ZS
+resolved_party_ledger_name: 33AAACY4945P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AABCT7933K1Z4
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AABCT7933K1Z4
+resolved_party_ledger_name: 33AABCT7933K1Z4
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AAICM2723M2ZD
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AAICM2723M2ZD
+resolved_party_ledger_name: 33AAICM2723M2ZD
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABFFR0693G1Z8
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABFFR0693G1Z8
+resolved_party_ledger_name: 33ABFFR0693G1Z8
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABFFR0693G1Z8
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABFFR0693G1Z8
+resolved_party_ledger_name: 33ABFFR0693G1Z8
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABICS9552R1ZF
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABICS9552R1ZF
+resolved_party_ledger_name: 33ABICS9552R1ZF
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABICS9552R1ZF
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABICS9552R1ZF
+resolved_party_ledger_name: 33ABICS9552R1ZF
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABICS9552R1ZF
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABICS9552R1ZF
+resolved_party_ledger_name: 33ABICS9552R1ZF
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ADMPD8819M1Z5
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ADMPD8819M1Z5
+resolved_party_ledger_name: 33ADMPD8819M1Z5
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ADMPD8819M1Z5
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ADMPD8819M1Z5
+resolved_party_ledger_name: 33ADMPD8819M1Z5
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ADMPD8819M1Z5
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ADMPD8819M1Z5
+resolved_party_ledger_name: 33ADMPD8819M1Z5
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ANBPL9307K1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ANBPL9307K1ZY
+resolved_party_ledger_name: 33ANBPL9307K1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ANBPL9307K1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ANBPL9307K1ZY
+resolved_party_ledger_name: 33ANBPL9307K1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ANBPL9307K1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ANBPL9307K1ZY
+resolved_party_ledger_name: 33ANBPL9307K1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33BQQPS7293L1ZU
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33BQQPS7293L1ZU
+resolved_party_ledger_name: 33BQQPS7293L1ZU
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33DXGPP6350E1ZI
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33DXGPP6350E1ZI
+resolved_party_ledger_name: 33DXGPP6350E1ZI
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33FQQPP1071M1ZB
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33FQQPP1071M1ZB
+resolved_party_ledger_name: 33FQQPP1071M1ZB
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33FRWPM7826N1ZP
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33FRWPM7826N1ZP
+resolved_party_ledger_name: 33FRWPM7826N1ZP
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33FRWPM7826N1ZP
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33FRWPM7826N1ZP
+resolved_party_ledger_name: 33FRWPM7826N1ZP
+name_source: GSTIN
+=== MASTER PREPARATION DEBUG ===
+{'eligible_voucher_count': 40, 'required_party_names': ['33AAACY4945P1ZS', '33AABCT7933K1Z4', '33AAICM2723M2ZD', '33AALFC8417G1ZH', '33ABBFA4422C2Z9', '33ABFFR0693G1Z8', '33ABICS9552R1ZF', '33ADMPD8819M1Z5', '33AGHPV2166P1ZS', '33ANBPL9307K1ZY', '33AQEPR4877Q1ZY', '33BQQPS7293L1ZU', '33DXGPP6350E1ZI', '33FQQPP1071M1ZB', '33FRWPM7826N1ZP'], 'required_account_ledgers': ['GST Purchase 12%', 'GST Purchase 18%', 'GST Purchase 28%'], 'required_tax_ledgers': ['Input CGST 14%', 'Input CGST 6%', 'Input CGST 9%', 'Input SGST 14%', 'Input SGST 6%', 'Input SGST 9%'], 'required_other_ledgers': ['Round Off']}
+{'invoice_number': '192', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AAACY4945P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '152.64', 'sgst_amount': '152.64', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '232', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AABCT7933K1Z4', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '154.71', 'sgst_amount': '154.71', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '226', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AAICM2723M2ZD', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '146.34', 'sgst_amount': '146.34', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '247', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '257.22', 'sgst_amount': '257.22', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '227', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '176.40', 'sgst_amount': '176.40', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '239', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '3599.91', 'sgst_amount': '3599.91', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '229', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '175.14', 'sgst_amount': '175.14', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '245', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '480.51', 'sgst_amount': '480.51', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '225', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '15374.79', 'sgst_amount': '15374.79', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '193', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '10237.50', 'sgst_amount': '10237.50', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '209', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '13043.88', 'sgst_amount': '13043.88', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '196', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '8286.12', 'sgst_amount': '8286.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '222', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '18029.88', 'sgst_amount': '18029.88', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '213', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '18696.87', 'sgst_amount': '18696.87', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '231', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABFFR0693G1Z8', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '13392.36', 'sgst_amount': '13392.36', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '234', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABFFR0693G1Z8', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '6293.07', 'sgst_amount': '6293.07', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '197', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABICS9552R1ZF', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '706.32', 'sgst_amount': '706.32', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '199', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABICS9552R1ZF', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '59.04', 'sgst_amount': '59.04', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '202', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ABICS9552R1ZF', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '382.76', 'sgst_amount': '382.76', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '248', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '4556.08', 'sgst_amount': '4556.08', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '248', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '4556.08', 'sgst_amount': '4556.08', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '208', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '2045.26', 'sgst_amount': '2045.26', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '200', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '1960.20', 'sgst_amount': '1960.20', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '206', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '6070.40', 'sgst_amount': '6070.40', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '230', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '7608.96', 'sgst_amount': '7608.96', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '198', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '6070.40', 'sgst_amount': '6070.40', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '223', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '7723.98', 'sgst_amount': '7723.98', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '224', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '4777.47', 'sgst_amount': '4777.47', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '224', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '4777.47', 'sgst_amount': '4777.47', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '191', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ANBPL9307K1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '223.02', 'sgst_amount': '223.02', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '240', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ANBPL9307K1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '623.70', 'sgst_amount': '623.70', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '211', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ANBPL9307K1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '139.50', 'sgst_amount': '139.50', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '214', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '11883.24', 'sgst_amount': '11883.24', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '216', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '15128.12', 'sgst_amount': '15128.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '216', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '15128.12', 'sgst_amount': '15128.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '228', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '7843.05', 'sgst_amount': '7843.05', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '233', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '6666.93', 'sgst_amount': '6666.93', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '235', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '4118.58', 'sgst_amount': '4118.58', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '201', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33BQQPS7293L1ZU', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '9325.26', 'sgst_amount': '9325.26', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '203', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '12', 'party_ledger': '33DXGPP6350E1ZI', 'account_ledger': 'GST Purchase 12%', 'cgst_amount': '5031.12', 'sgst_amount': '5031.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 6%', 'Input SGST 6%', 'Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '203', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33DXGPP6350E1ZI', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '5031.12', 'sgst_amount': '5031.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 6%', 'Input SGST 6%', 'Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '220', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33FQQPP1071M1ZB', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '8818.11', 'sgst_amount': '8818.11', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '220', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33FQQPP1071M1ZB', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '8818.11', 'sgst_amount': '8818.11', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '205', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '14378.87', 'sgst_amount': '14378.87', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '205', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '14378.87', 'sgst_amount': '14378.87', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '194', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '10114.04', 'sgst_amount': '10114.04', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '194', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '10114.04', 'sgst_amount': '10114.04', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+=== CONNECTION ===
+{'TCP': True}
+=== JSON CAPABILITY REQUEST ===
+{'subtype': 'Company', 'id': '', 'svExportFormat': 'jsonex'}
+=== JSON CAPABILITY RESPONSE ===
+{'status': 200, 'success': True}
+=== VERSION ===
+{'detected': '', 'configured': '7.1', 'source': 'CONFIGURED_FALLBACK'}
+=== JSON PROBE ===
+{'attempted': True, 'success': False}
+=== XML PROBE ===
+=== TALLY XML COMPANY REQUEST ===
+<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>GSTCompanies</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><COLLECTION NAME="GSTCompanies"><TYPE>Company</TYPE><COMPUTE>FINANCIALYEARFROM:$$String:##SVFromDate</COMPUTE><COMPUTE>FINANCIALYEARTO:$$String:##SVToDate</COMPUTE><FETCH>NAME,STATENAME,GSTREGISTRATIONNUMBER,FINANCIALYEARFROM,FINANCIALYEARTO</FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
+=== TALLY XML COMPANY RESPONSE ===
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DESC>
+   <CMPINFO>
+    <COMPANY>0</COMPANY>
+    <GROUP>0</GROUP>
+    <LEDGER>4</LEDGER>
+    <COSTCATEGORY>0</COSTCATEGORY>
+    <COSTCENTRE>0</COSTCENTRE>
+    <GODOWN>0</GODOWN>
+    <STOCKGROUP>0</STOCKGROUP>
+    <STOCKCATEGORY>0</STOCKCATEGORY>
+    <STOCKITEM>0</STOCKITEM>
+    <VOUCHERTYPE>0</VOUCHERTYPE>
+    <CURRENCY>0</CURRENCY>
+    <UNIT>0</UNIT>
+    <BUDGET>0</BUDGET>
+    <CLIENTRULE>0</CLIENTRULE>
+    <SERVERRULE>0</SERVERRULE>
+    <STATE>0</STATE>
+    <TDSRATE>0</TDSRATE>
+    <TAXCLASSIFICATION>0</TAXCLASSIFICATION>
+    <STCATEGORY>0</STCATEGORY>
+    <DEDUCTEETYPE>0</DEDUCTEETYPE>
+    <ATTENDANCETYPE>0</ATTENDANCETYPE>
+    <FBTCATEGORY>0</FBTCATEGORY>
+    <FBTASSESSEETYPE>0</FBTASSESSEETYPE>
+    <TARIFFCLASSIFICATION>0</TARIFFCLASSIFICATION>
+    <EXCISEDUTYCLASSIFICATION>0</EXCISEDUTYCLASSIFICATION>
+    <SERIALNUMBER>0</SERIALNUMBER>
+    <ADJUSTMENTCLASSIFICATION>0</ADJUSTMENTCLASSIFICATION>
+    <INCOMETAXSLAB>0</INCOMETAXSLAB>
+    <INCOMETAXCLASSIFICATION>0</INCOMETAXCLASSIFICATION>
+    <LBTCLASSIFICATION>0</LBTCLASSIFICATION>
+    <TAXUNIT>0</TAXUNIT>
+    <RETURNMASTER>0</RETURNMASTER>
+    <GSTCLASSIFICATION>0</GSTCLASSIFICATION>
+    <VOUCHERNUMBERSERIES>0</VOUCHERNUMBERSERIES>
+    <VOUCHER>0</VOUCHER>
+   </CMPINFO>
+  </DESC>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="New" RESERVEDNAME="">
+     <NAME TYPE="String">New</NAME>
+     <STATENAME TYPE="String">Tamil Nadu</STATENAME>
+     <FINANCIALYEARFROM TYPE="String">1-Apr-25</FINANCIALYEARFROM>
+     <FINANCIALYEARTO TYPE="String">31-Mar-26</FINANCIALYEARTO>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>
+
+{'attempted': True, 'success': True}
+=== TRANSPORT ===
+{'requested': 'JSON', 'actual': 'XML', 'fallback': True}
+=== CURRENT COMPANY ===
+{'name': 'New', 'gstin': '33AFHPM6103Q1Z8', 'state': 'Tamil Nadu'}
+=== FINAL ===
+{'read_connected': True, 'company_open': True, 'error_code': ''}
+=== TALLY CONNECTION CHECK ===
+Configured Host: 127.0.0.1
+Configured Port: 9000
+Resolved Host: 127.0.0.1
+Resolved Port: 9000
+TCP Connected: True
+HTTP Connected: True
+ODBC Connected: True
+Read Connected: True
+Requested Transport: JSON
+Actual Transport: XML
+JSON Connected: False
+XML Connected: True
+Fallback Used: True
+Fallback Reason: Native JSON company read unavailable; XML HTTP integration used.
+Tally Process Detected: None
+Port Listening: None
+Company Open: True
+Detected Company: New
+Detected GSTIN: 33AFHPM6103Q1Z8
+Can Import: True
+Error Code: 
+Error Message: 
+=== TALLY FINANCIAL PERIOD ===
+from = 2025-04-01
+to = 2026-03-31
+formatted = 01 Apr 2025 - 31 Mar 2026
+=== PARTY MASTER TRACE ===
+gstin: 33AAACY4945P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AAACY4945P1ZS
+resolved_party_ledger_name: 33AAACY4945P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AABCT7933K1Z4
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AABCT7933K1Z4
+resolved_party_ledger_name: 33AABCT7933K1Z4
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AAICM2723M2ZD
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AAICM2723M2ZD
+resolved_party_ledger_name: 33AAICM2723M2ZD
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AALFC8417G1ZH
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AALFC8417G1ZH
+resolved_party_ledger_name: 33AALFC8417G1ZH
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABBFA4422C2Z9
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABBFA4422C2Z9
+resolved_party_ledger_name: 33ABBFA4422C2Z9
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABFFR0693G1Z8
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABFFR0693G1Z8
+resolved_party_ledger_name: 33ABFFR0693G1Z8
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABFFR0693G1Z8
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABFFR0693G1Z8
+resolved_party_ledger_name: 33ABFFR0693G1Z8
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABICS9552R1ZF
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABICS9552R1ZF
+resolved_party_ledger_name: 33ABICS9552R1ZF
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABICS9552R1ZF
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABICS9552R1ZF
+resolved_party_ledger_name: 33ABICS9552R1ZF
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ABICS9552R1ZF
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ABICS9552R1ZF
+resolved_party_ledger_name: 33ABICS9552R1ZF
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ADMPD8819M1Z5
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ADMPD8819M1Z5
+resolved_party_ledger_name: 33ADMPD8819M1Z5
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ADMPD8819M1Z5
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ADMPD8819M1Z5
+resolved_party_ledger_name: 33ADMPD8819M1Z5
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ADMPD8819M1Z5
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ADMPD8819M1Z5
+resolved_party_ledger_name: 33ADMPD8819M1Z5
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AGHPV2166P1ZS
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AGHPV2166P1ZS
+resolved_party_ledger_name: 33AGHPV2166P1ZS
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ANBPL9307K1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ANBPL9307K1ZY
+resolved_party_ledger_name: 33ANBPL9307K1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ANBPL9307K1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ANBPL9307K1ZY
+resolved_party_ledger_name: 33ANBPL9307K1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33ANBPL9307K1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33ANBPL9307K1ZY
+resolved_party_ledger_name: 33ANBPL9307K1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33AQEPR4877Q1ZY
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33AQEPR4877Q1ZY
+resolved_party_ledger_name: 33AQEPR4877Q1ZY
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33BQQPS7293L1ZU
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33BQQPS7293L1ZU
+resolved_party_ledger_name: 33BQQPS7293L1ZU
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33DXGPP6350E1ZI
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33DXGPP6350E1ZI
+resolved_party_ledger_name: 33DXGPP6350E1ZI
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33FQQPP1071M1ZB
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33FQQPP1071M1ZB
+resolved_party_ledger_name: 33FQQPP1071M1ZB
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33FRWPM7826N1ZP
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33FRWPM7826N1ZP
+resolved_party_ledger_name: 33FRWPM7826N1ZP
+name_source: GSTIN
+=== PARTY MASTER TRACE ===
+gstin: 33FRWPM7826N1ZP
+source_party_name: 
+sandbox_lookup_attempted: False
+sandbox_http_status: None
+sandbox_success: False
+sandbox_trade_name: 
+sandbox_legal_name: 
+persisted_trade_name: 33FRWPM7826N1ZP
+resolved_party_ledger_name: 33FRWPM7826N1ZP
+name_source: GSTIN
+=== MASTER PREPARATION DEBUG ===
+{'eligible_voucher_count': 40, 'required_party_names': ['33AAACY4945P1ZS', '33AABCT7933K1Z4', '33AAICM2723M2ZD', '33AALFC8417G1ZH', '33ABBFA4422C2Z9', '33ABFFR0693G1Z8', '33ABICS9552R1ZF', '33ADMPD8819M1Z5', '33AGHPV2166P1ZS', '33ANBPL9307K1ZY', '33AQEPR4877Q1ZY', '33BQQPS7293L1ZU', '33DXGPP6350E1ZI', '33FQQPP1071M1ZB', '33FRWPM7826N1ZP'], 'required_account_ledgers': ['GST Purchase 12%', 'GST Purchase 18%', 'GST Purchase 28%'], 'required_tax_ledgers': ['Input CGST 14%', 'Input CGST 6%', 'Input CGST 9%', 'Input SGST 14%', 'Input SGST 6%', 'Input SGST 9%'], 'required_other_ledgers': ['Round Off']}
+{'invoice_number': '192', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AAACY4945P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '152.64', 'sgst_amount': '152.64', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '232', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AABCT7933K1Z4', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '154.71', 'sgst_amount': '154.71', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '226', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AAICM2723M2ZD', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '146.34', 'sgst_amount': '146.34', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '247', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '257.22', 'sgst_amount': '257.22', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '227', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '176.40', 'sgst_amount': '176.40', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '239', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '3599.91', 'sgst_amount': '3599.91', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '229', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '175.14', 'sgst_amount': '175.14', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '245', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AALFC8417G1ZH', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '480.51', 'sgst_amount': '480.51', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '225', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '15374.79', 'sgst_amount': '15374.79', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '193', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '10237.50', 'sgst_amount': '10237.50', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '209', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '13043.88', 'sgst_amount': '13043.88', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '196', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '8286.12', 'sgst_amount': '8286.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '222', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '18029.88', 'sgst_amount': '18029.88', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '213', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABBFA4422C2Z9', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '18696.87', 'sgst_amount': '18696.87', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '231', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABFFR0693G1Z8', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '13392.36', 'sgst_amount': '13392.36', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '234', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABFFR0693G1Z8', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '6293.07', 'sgst_amount': '6293.07', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '197', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABICS9552R1ZF', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '706.32', 'sgst_amount': '706.32', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '199', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ABICS9552R1ZF', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '59.04', 'sgst_amount': '59.04', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '202', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ABICS9552R1ZF', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '382.76', 'sgst_amount': '382.76', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '248', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '4556.08', 'sgst_amount': '4556.08', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '248', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '4556.08', 'sgst_amount': '4556.08', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '208', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '2045.26', 'sgst_amount': '2045.26', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '200', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ADMPD8819M1Z5', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '1960.20', 'sgst_amount': '1960.20', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '206', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '6070.40', 'sgst_amount': '6070.40', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '230', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '7608.96', 'sgst_amount': '7608.96', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '198', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '6070.40', 'sgst_amount': '6070.40', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '223', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '7723.98', 'sgst_amount': '7723.98', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '224', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '4777.47', 'sgst_amount': '4777.47', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '224', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AGHPV2166P1ZS', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '4777.47', 'sgst_amount': '4777.47', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '191', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ANBPL9307K1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '223.02', 'sgst_amount': '223.02', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '240', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ANBPL9307K1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '623.70', 'sgst_amount': '623.70', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '211', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33ANBPL9307K1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '139.50', 'sgst_amount': '139.50', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '214', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '11883.24', 'sgst_amount': '11883.24', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '216', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '15128.12', 'sgst_amount': '15128.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '216', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '15128.12', 'sgst_amount': '15128.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '228', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '7843.05', 'sgst_amount': '7843.05', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '233', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '6666.93', 'sgst_amount': '6666.93', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '235', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33AQEPR4877Q1ZY', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '4118.58', 'sgst_amount': '4118.58', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '201', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33BQQPS7293L1ZU', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '9325.26', 'sgst_amount': '9325.26', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '203', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '12', 'party_ledger': '33DXGPP6350E1ZI', 'account_ledger': 'GST Purchase 12%', 'cgst_amount': '5031.12', 'sgst_amount': '5031.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 6%', 'Input SGST 6%', 'Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '203', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33DXGPP6350E1ZI', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '5031.12', 'sgst_amount': '5031.12', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 6%', 'Input SGST 6%', 'Input CGST 9%', 'Input SGST 9%']}
+{'invoice_number': '220', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33FQQPP1071M1ZB', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '8818.11', 'sgst_amount': '8818.11', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '220', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33FQQPP1071M1ZB', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '8818.11', 'sgst_amount': '8818.11', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '205', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '14378.87', 'sgst_amount': '14378.87', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '205', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '14378.87', 'sgst_amount': '14378.87', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '194', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '18', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 18%', 'cgst_amount': '10114.04', 'sgst_amount': '10114.04', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
+{'invoice_number': '194', 'return_type': 'GSTR2B', 'rate_available': True, 'gst_rate': '28', 'party_ledger': '33FRWPM7826N1ZP', 'account_ledger': 'GST Purchase 28%', 'cgst_amount': '10114.04', 'sgst_amount': '10114.04', 'igst_amount': '0.00', 'cess_amount': '0.00', 'resolved_tax_ledgers': ['Input CGST 9%', 'Input SGST 9%', 'Input CGST 14%', 'Input SGST 14%']}
