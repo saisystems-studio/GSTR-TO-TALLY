@@ -13,7 +13,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 import uuid
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -184,6 +184,22 @@ def bounded_read(response):
     return raw
 
 
+def build_server_api_url(origin, path):
+    parts = urlsplit(origin)
+    host = (parts.hostname or '').lower()
+    if not path.startswith('/api/'):
+        raise ValueError('Unexpected API path')
+    if host in ('localhost', '127.0.0.1', '::1'):
+        server_path = path
+    elif host == 'saiinfosysmdu.in':
+        if parts.scheme != 'https':
+            raise ValueError('Production API requires HTTPS')
+        server_path = '/gstr2tally' + path
+    else:
+        raise ValueError('Unconfigured API server')
+    return urlunsplit((parts.scheme, parts.netloc, server_path, '', ''))
+
+
 def api(origin, path, payload=None, token=''):
     parsed = urlsplit(origin)
     # HTTPS only. Plain HTTP is accepted solely for a loopback origin (developer builds talking to a local backend).
@@ -195,7 +211,7 @@ def api(origin, path, payload=None, token=''):
     headers = {'Content-Type': 'application/json'}
     if token:
         headers['X-Tally-Agent-Token'] = token
-    request = urllib.request.Request(origin.rstrip('/')+path, data=json.dumps(payload or {}).encode(),
+    request = urllib.request.Request(build_server_api_url(origin, path), data=json.dumps(payload or {}).encode(),
                                      headers=headers, method='POST')
     opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
     with opener.open(request, timeout=25) as response:
