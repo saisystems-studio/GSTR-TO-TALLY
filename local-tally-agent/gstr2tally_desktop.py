@@ -1,4 +1,8 @@
-"""GSTR2Tally Windows desktop shell: a dedicated WebView2 window around the existing GSTR2Tally web app.
+git diff --cached --name-only
+
+git diff --cached --check
+
+git status --short"""GSTR2Tally Windows desktop shell: a dedicated WebView2 window around the existing GSTR2Tally web app.
 
 It contains NO business logic and NO secrets (no Nexus product key / signing secret). The React app and Django backend stay the
 single implementation; this shell only (1) makes sure the bundled local Tally Connector is running, (2) shows a loading / error
