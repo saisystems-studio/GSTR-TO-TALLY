@@ -72,7 +72,7 @@ def detected_tally(request):
         return {"detected": False, "code": "tally_not_running", "message": "TallyPrime is not running or its serial number could not be verified. Open TallyPrime and retry."}
     agent = LocalTallyAgent.objects.filter(browser_device=fp).order_by("-last_seen_at").first() if fp else None
     if not agent or not online(agent):
-        return {"detected": False, "code": "connector_offline", "message": "Connector not running. Start the GSTR2Tally connector and retry."}
+        return {"detected": False, "code": "connector_offline", "message": "This server has no report from your Connector. Start the GSTR2Tally Connector and make sure it is set to this same server, then retry."}
     if not agent.tally_reachable or not agent.detected_serial:
         return {"detected": False, "code": "tally_not_running", "message": "TallyPrime is not running or its serial number could not be verified. Open TallyPrime and retry."}
     return {"detected": True, "tally_serial": agent.detected_serial, "identity": agent.identity or {}}
