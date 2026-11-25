@@ -4,7 +4,7 @@ import LoadingButton from '../common/LoadingButton'
 import DeviceTransferDialog from './DeviceTransferDialog'
 import { step3Ready, step3Rows } from '../../utils/step3Verification'
 
-export default function Step3Verification({ companyInfo, companyResult, licenseResult, confirmLoading, confirmDone, onSelectGstin, onConfirmMasters, onRetryLicense }) {
+export default function Step3Verification({ companyInfo, companyResult, licenseResult, confirmLoading, confirmDone, confirmError, onSelectGstin, onConfirmMasters, onRetryLicense }) {
   const [visible, setVisible] = useState(true)
   const [transferDismissed, setTransferDismissed] = useState(false)
   useEffect(() => { setVisible(true); setTransferDismissed(false) }, [licenseResult, companyResult])
@@ -47,12 +47,13 @@ export default function Step3Verification({ companyInfo, companyResult, licenseR
               </div>)}
             </div>
           </section>}
+          {confirmError && <section className="step3-issues" role="alert"><div className="step3-issue"><span className="step3-issue-icon" aria-hidden="true">!</span><div className="step3-issue-content"><div className="step3-issue-heading"><strong>Could not continue</strong></div><p>{confirmError}</p></div></div></section>}
           {showConnectionHelp && <aside className="step3-help"><strong>What to do</strong><span>1. Start TallyPrime</span><span>2. Enable HTTP/ODBC</span><span>3. Open correct company</span><span>4. Retry</span></aside>}
         </>}
         <footer className="step3-footer">
           <button className="step3-secondary" onClick={() => setVisible(false)}>Close</button>
           {!needsPick && !complete && <LoadingButton className="step3-primary" onClick={onRetryLicense}>Retry Verification</LoadingButton>}
-          {complete && <LoadingButton className="step3-primary" loading={confirmLoading} disabled={!complete || confirmDone} onClick={onConfirmMasters}>{confirmDone ? 'Confirmed' : 'Confirm & Continue'}</LoadingButton>}
+          {complete && <LoadingButton className="step3-primary" loading={confirmLoading} disabled={!complete || confirmDone} onClick={onConfirmMasters}>{confirmDone ? 'Confirmed' : confirmError ? 'Retry' : 'Confirm & Continue'}</LoadingButton>}
         </footer>
       </section>
     </div>, document.body)}

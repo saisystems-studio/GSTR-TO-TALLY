@@ -13,7 +13,7 @@ const BASE = '/api/gst-tally'
 // is blocked, not only when the screen that happened to call it bothers to
 // check error.code itself.
 const SUBSCRIPTION_BLOCKED_EVENT = 'gst-subscription-blocked'
-async function request(path, options={}){try{const response=await authenticatedFetch(`${BASE}${path}`,options);let body={};try{body=await response.json()}catch{}if(!response.ok){if(response.status===402&&(body.code==='SUBSCRIPTION_EXPIRED'||body.code==='SUBSCRIPTION_SUSPENDED')){window.dispatchEvent(new CustomEvent(SUBSCRIPTION_BLOCKED_EVENT,{detail:body}))}const error=new Error(body.detail||body.message||'Request failed');Object.assign(error,body);throw error}return body}catch(error){if(error.name==='AbortError')throw new Error('Tally did not complete the request within the allowed time. Check Tally for an open dialog before retrying.');if(error instanceof TypeError)throw new Error('Cannot reach the GST server. Make sure the backend is running (python manage.py runserver 127.0.0.1:8000) and try again.');throw error}}
+async function request(path, options={}){try{const response=await authenticatedFetch(`${BASE}${path}`,options);let body={};try{body=await response.json()}catch{}if(!response.ok){if(response.status===402&&(body.code==='SUBSCRIPTION_EXPIRED'||body.code==='SUBSCRIPTION_SUSPENDED')){window.dispatchEvent(new CustomEvent(SUBSCRIPTION_BLOCKED_EVENT,{detail:body}))}const error=new Error((Array.isArray(body)?body.filter(item=>typeof item==='string').join(' '):typeof body==='string'?body:'')||body.detail||body.message||(Array.isArray(body.non_field_errors)?body.non_field_errors.join(' '):'')||'Request failed');Object.assign(error,body);throw error}return body}catch(error){if(error.name==='AbortError')throw new Error('Tally did not complete the request within the allowed time. Check Tally for an open dialog before retrying.');if(error instanceof TypeError)throw new Error('Cannot reach the GST server. Make sure the backend is running (python manage.py runserver 127.0.0.1:8000) and try again.');throw error}}
 export function uploadGSTFile({returnType,returnPeriod,file}){const data=new FormData();data.append('return_type',returnType);data.append('return_period',returnPeriod);data.append('file',file);return request('/import/',{method:'POST',body:data})}
 export function previewGSTFile({returnType,file,sheetName}){const data=new FormData();data.append('return_type',returnType);data.append('file',file);if(sheetName)data.append('sheet_name',sheetName);return request('/preview/',{method:'POST',body:data})}
 export const getImportBatch=id=>request(`/batches/${id}/`)
@@ -27,7 +27,7 @@ export const getImportHistory=()=>request('/batches/')
 export const fetchBatchParties=(id,{force=false,retryIncomplete=false,gstins=[]}={})=>request(`/import-batches/${id}/fetch-parties/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force,retry_incomplete:retryIncomplete,gstins})})
 export const getBatchParties=id=>request(`/import-batches/${id}/parties/`)
 export const completeBatchParty=(id,gstin,details)=>request(`/import-batches/${id}/parties/${encodeURIComponent(gstin)}/`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(details)})
-export const prepareTallyMasters=(id,tallyCompanyName='')=>request(`/import-batches/${id}/tally-masters/prepare/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tally_company_name:tallyCompanyName})})
+export const prepareTallyMasters=(id,tallyCompanyName='',{force=false,signal}={})=>request(`/import-batches/${id}/tally-masters/prepare/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tally_company_name:tallyCompanyName,force}),signal})
 export const verifyCompanyName=(id,tallyCompanyName='')=>request(`/import-batches/${id}/company/verify/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tally_company_name:tallyCompanyName})})
 export const resolveBatchCompany=(id,companyGstin='')=>request(`/import-batches/${id}/company/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company_gstin:companyGstin})})
 export const previewTallyVouchers=id=>request(`/import-batches/${id}/tally-vouchers/preview/`)
@@ -50,9 +50,9 @@ export const preImportLicenseCheck=(id,payload={})=>request(`/import-batches/${i
 // no client-side abort timeout. Progress/result comes from polling
 // getTallyImportJobStatus below.
 const jobStartRequests = new Map()
-export function startTallyImportJob(id) {
+export function startTallyImportJob(id, { signal } = {}) {
   if (jobStartRequests.has(id)) return jobStartRequests.get(id)
-  const pending = request(`/import-batches/${id}/tally-import/`, { method: 'POST' })
+  const pending = request(`/import-batches/${id}/tally-import/`, { method: 'POST', signal })
     .finally(() => jobStartRequests.delete(id))
   jobStartRequests.set(id, pending)
   return pending

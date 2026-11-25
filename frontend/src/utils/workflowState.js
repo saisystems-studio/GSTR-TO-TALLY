@@ -395,16 +395,21 @@ export function shouldAutoStartImport({
 }) {
   return Boolean(autoStartImport && pageReady && !alreadyTriggered && !importBusy && !hasJob && !hasResult)
 }
-export const RETURN_TYPE_FILE_FORMATS = Object.freeze({
-  GSTR1: { label: 'JSON', extension: '.json' },
-  GSTR2A: { label: 'CSV', extension: '.csv' },
-  GSTR2B: { label: 'Excel', extension: '.xlsx' },
+// Every return type (GSTR-1, GSTR-2A, GSTR-2B) accepts every format; the backend parses all nine combinations.
+export const FILE_FORMATS = Object.freeze({
+  JSON: { label: 'JSON', extension: '.json', accept: '.json' },
+  CSV: { label: 'CSV', extension: '.csv', accept: '.csv' },
+  Excel: { label: 'Excel', extension: '.xlsx', accept: '.xlsx,.xls' },
 })
 
-export function defaultFileFormat(returnType) {
-  return RETURN_TYPE_FILE_FORMATS[returnType]?.label || ''
+export function defaultFileFormat() {
+  return 'JSON'
+}
+
+export function fileFormatAccept(fileFormat) {
+  return FILE_FORMATS[fileFormat]?.accept || ''
 }
 
 export function fileFormatExtension(fileFormat) {
-  return { JSON: '.json', CSV: '.csv', Excel: '.xlsx' }[fileFormat] || ''
+  return FILE_FORMATS[fileFormat]?.extension || ''
 }

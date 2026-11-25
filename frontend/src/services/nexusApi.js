@@ -26,7 +26,9 @@ async function request(path, body, method = 'POST') {
     const fallback = response.status === 429 ? 'Too many attempts. Please wait a minute and try again.'
       : response.status >= 500 ? 'The licensing server had a problem. Please try again shortly.' : 'The request could not be completed.'
     const error = new Error(data.detail || data.message || firstField || fallback)
-    Object.assign(error, data, { status: response.status, errors: fieldErrors })
+    // 429: honour the server's wait (Retry-After header, else "available in N seconds"), never a blind default loop.
+    const waited = Number(response.headers.get('Retry-After')) || Number(/(\d+)\s*second/i.exec(data.detail || '')?.[1]) || 60
+    Object.assign(error, data, { status: response.status, errors: fieldErrors }, response.status === 429 ? { retryAfter: Math.min(Math.max(waited, 1), 3600) } : {})
     throw error
   }
   return data
@@ -36,7 +38,7 @@ export const getNexusConfig = () => request('/config/', null, 'GET').catch(() =>
 export const detectTallySerial = () => request('/tally/detect/', null, 'GET')
 export const pairConnector = (enrollment_id, proof) => request('/connector/pair/', { enrollment_id, proof })
 export const nexusRegister = values => request('/register/', values)
-export const nexusLogin = async (userId, password) => saveSession(await request('/login/', { user_id: userId, password, device: device() }))
+export const nexusLogin = async (userId, password, confirmTransfer = false) => saveSession(await request('/login/', { user_id: userId, password, device: device(), ...(confirmTransfer ? { confirm_transfer: true } : {}) }))
 export const nexusChangePassword = (ticket, current_password, new_password) => request('/password/change/', { ticket, current_password, new_password })
 export const nexusForgot = identifier => request('/password/forgot/', { identifier })
 export const nexusReset = (token, new_password, identifier = '') => request('/password/reset/', { token, new_password, identifier })

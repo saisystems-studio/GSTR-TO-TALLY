@@ -33,5 +33,5 @@ function connectorDownloads() {
 
 export default defineConfig({
   plugins: [react(), connectorDownloads()],
-  server: { port: 5173, strictPort: false, proxy: { '/api': 'http://127.0.0.1:8000' } },
+  server: { host: '127.0.0.1', port: 5173, strictPort: false, proxy: { '/api': 'http://127.0.0.1:8000' } },
 })

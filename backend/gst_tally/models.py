@@ -250,7 +250,7 @@ class GSTCompanyImportSummary(models.Model):
     first_tally_import_at = models.DateTimeField(null=True, blank=True)
     last_tally_import_at = models.DateTimeField(null=True, blank=True)
     last_retry_at = models.DateTimeField(null=True, blank=True)
-    import_status = models.CharField(max_length=30, default="PENDING")
+    import_status = models.CharField(max_length=40, default="PENDING")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -395,7 +395,7 @@ class TallyVoucherMapping(models.Model):
     party_gstin = models.CharField(max_length=15, blank=True)
     tally_company = models.CharField(max_length=255)
     tally_voucher_identifier = models.CharField(max_length=255, blank=True)
-    import_status = models.CharField(max_length=30)
+    import_status = models.CharField(max_length=40)
     raw_response = models.TextField(blank=True)
     error_message = models.TextField(blank=True)
     imported_at = models.DateTimeField(null=True, blank=True)
@@ -423,7 +423,7 @@ class GSTTallyVoucherRegistry(models.Model):
                                        null=True, blank=True, on_delete=models.SET_NULL)
     latest_invoice = models.ForeignKey(GSTInvoice, related_name="voucher_registry_entries",
                                        null=True, blank=True, on_delete=models.SET_NULL)
-    import_status = models.CharField(max_length=30, default="PENDING")
+    import_status = models.CharField(max_length=40, default="PENDING")
     tally_created = models.BooleanField(default=False)
     tally_altered = models.BooleanField(default=False)
     tally_voucher_identifier = models.CharField(max_length=255, blank=True)

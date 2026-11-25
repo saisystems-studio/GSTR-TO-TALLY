@@ -556,6 +556,10 @@ def _nexus_pre_import(*, connection, reading, source_gstin, user, fingerprint, d
         link = user.nexus_links.filter(client_device_id=fingerprint[:64], revoked_reason="").first()
         if link and link.lease_until and link.lease_until < now:
             link = None
+        if link:
+            from nexus_auth.service import revalidate  # a revoked/transferred device must not import, whatever the lease says
+            if not revalidate(link) and (link.license or {}).get("authorized"):
+                link = None  # revoked/transferred or Nexus unreachable beyond the grace: never fall back to a cached lease
     lic = (link.license if link else {}) or {}
     registered = normalize_tally_serial(link.nexus_user_id) if link else ""
     serial_match = bool(reading.get("license_available") and detected and registered and detected == registered)

@@ -120,9 +120,18 @@ class LoginView(PublicView):
     def post(self, request):
         d = request.data
         device = service.device_block(d)
+        user_id = str(d.get("user_id", "")).strip()
+        # First-time enrollment only when the Connector's verified Tally read matches the account being signed in to.
+        tally = detected_tally(request)
+        enroll = bool(tally.get("detected") and user_id and str(tally.get("tally_serial", "")).strip() == user_id)
         try:
-            body = call("POST", "auth/login/", {"user_id": str(d.get("user_id", "")).strip(), "password": str(d.get("password", "")), "device": device})
+            body = call("POST", "auth/login/", {"user_id": str(d.get("user_id", "")).strip(), "password": str(d.get("password", "")), "device": device,
+                                                   **({"confirm_transfer": True} if d.get("confirm_transfer") is True else {}),
+                                                   **({"enroll_device": True} if enroll else {})})
         except NexusError as exc:
+            if exc.code == "device_conflict":  # Nexus tallysl contract: 409 device_conflict; client asks OK/Cancel, retries with confirm_transfer
+                return Response({"detail": "Your account is already active on another device. Do you want to continue on this device? The previous device will be logged out.",
+                                 "code": "device_conflict"}, status=409)
             return fail(exc)
         token = body["token"]
         if body.get("must_change_password"):
@@ -133,7 +142,10 @@ class LoginView(PublicView):
         problem = service.license_error(lic)
         if problem:
             return Response({"detail": problem[1], "code": problem[0], "license": lic}, status=403)
-        return Response({"license": lic, **service.establish(body["account"], token, lic, device["client_device_id"])})
+        session = service.establish(body["account"], token, lic, device["client_device_id"])
+        if body.get("device_replaced"):  # end every other local session for this serial immediately
+            service.record_device_replacement(body["account"], device)
+        return Response({"license": lic, **session})
 
 
 class ChangePasswordView(PublicView):

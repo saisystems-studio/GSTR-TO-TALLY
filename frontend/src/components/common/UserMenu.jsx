@@ -4,7 +4,8 @@ import NexusLicensePanel from './NexusLicensePanel.jsx'
 export default function UserMenu({ user, onLogout }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
-  const name = user?.username || user?.email || 'User'
+  const rawName = user?.username || user?.email || 'User'
+  const name = user?.tally_serial ? String(user.tally_serial) : rawName.replace(/^nexus_/i, '')
   const initials = name.trim().slice(0, 2).toUpperCase()
 
   useEffect(() => {

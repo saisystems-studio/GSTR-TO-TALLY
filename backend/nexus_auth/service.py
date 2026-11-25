@@ -86,3 +86,41 @@ def record_device_replacement(account, device):
             revoke(link, "device_replaced")
         user = User.objects.get(username=f"nexus_{serial}")
         queue_nexus_transfer_event(serial, user, old_ids, device.get("device_name", ""), device.get("client_device_id", ""))
+
+
+REVALIDATE_SECONDS = 60       # max age of a Nexus answer relied on for a security-sensitive operation
+OFFLINE_GRACE_SECONDS = 900   # if Nexus is unreachable, a recent positive answer is trusted this long (never the 7-day lease)
+
+
+def revalidate(link, max_age=REVALIDATE_SECONDS, grace=OFFLINE_GRACE_SECONDS):
+    """True only while Nexus itself still authorises this link. Asks Nexus (GET session/) when the last answer is older
+    than max_age. A 401/403 revokes the link at once. Unreachable Nexus: trusted only within `grace` of the last good answer."""
+    from datetime import timedelta
+    from .client import NexusError, call
+    now = timezone.now()
+    link.refresh_from_db()
+    if link.revoked_reason or not link.token_enc:
+        return False
+    cached_ok = bool((link.license or {}).get("authorized")) and not (link.lease_until and link.lease_until < now)
+    if not getattr(settings, "NEXUS_ENABLED", False):
+        return cached_ok
+    if link.last_checked_at and now - link.last_checked_at < timedelta(seconds=max_age):
+        return cached_ok
+    try:
+        body = call("GET", "session/", token=decrypt(link.token_enc))
+    except NexusError as exc:
+        if exc.status in (401, 403):
+            revoke(link, (exc.errors.get("reason") or ["revoked"])[0] if exc.status == 401 else "not_authorized")
+            return False
+        if exc.code == "nexus_unreachable":
+            return bool(cached_ok and link.last_checked_at and now - link.last_checked_at < timedelta(seconds=grace))
+        return False
+    lic = body.get("license") or {}
+    link.license, link.last_checked_at = lic, now
+    if lic.get("lease_until"):
+        link.lease_until = parse_datetime(lic["lease_until"])
+    link.save(update_fields=["license", "last_checked_at", "lease_until", "updated_at"])
+    if license_error(lic):
+        revoke(link, license_error(lic)[0])
+        return False
+    return True

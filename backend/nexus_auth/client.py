@@ -27,6 +27,15 @@ def base_url():
     return f"{root}/api/v1/tally-sl/{settings.NEXUS_PRODUCT_ID}/"
 
 
+def endpoint_url(path):
+    """Join base + relative path: no duplicate slashes, trailing slash kept (a missing one makes Django redirect
+    and drop the /nexus prefix). Query strings are left untouched."""
+    path = str(path or "").strip().lstrip("/")
+    if path and "?" not in path and not path.endswith("/"):
+        path += "/"
+    return base_url() + path
+
+
 def call(method, path, payload=None, token=None, sign=False):
     headers = {"Content-Type": "application/json", "X-Product-Key": settings.NEXUS_PRODUCT_KEY}
     if token:
@@ -37,7 +46,7 @@ def call(method, path, payload=None, token=None, sign=False):
         ts = str(int(time.time()))
         headers["X-Nexus-Timestamp"] = ts
         headers["X-Nexus-Signature"] = hmac.new(settings.NEXUS_EVENT_SIGNING_SECRET.encode(), ts.encode() + b"." + (data or b""), hashlib.sha256).hexdigest()
-    req = urllib.request.Request(base_url() + path, data=data, headers=headers, method=method)
+    req = urllib.request.Request(endpoint_url(path), data=data, headers=headers, method=method)
     try:
         with urllib.request.build_opener(_NoRedirect()).open(req, timeout=settings.NEXUS_TIMEOUT) as response:
             return json.loads(response.read().decode() or "{}")

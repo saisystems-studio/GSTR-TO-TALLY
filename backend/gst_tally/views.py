@@ -881,15 +881,48 @@ class BatchPartyDetailView(APIView):
         return Response({"success": True, "party": result_row(gstin, "Completed Manually", party)})
 
 class TallyMastersView(APIView):
+    """Step 4 master preparation (the work behind Confirm & Continue).
+
+    It costs several Tally round trips per master (hundreds for a large file; each is a
+    Connector relay job on the VPS), so a still-valid successful result for the same batch/company
+    is reused for a few minutes, and concurrent duplicate requests are refused instead of
+    re-running the same writes. ``force`` (explicit refresh) always re-reads Tally. Step 6 still
+    re-verifies company, licence and period live before any voucher is sent."""
+    REUSE_SECONDS = 300
+    LOCK_SECONDS = 180
+
     def post(self, request, pk):
+        import hashlib, logging, time
+        from django.core.cache import cache
         batch = get_object_or_404(GSTImportBatch, pk=pk)
         selected = str(request.data.get("tally_company_name") or "").strip()
+        force = request.data.get("force") is True
         if selected:
             details = dict(batch.company_details or {})
             details["selected_tally_company"] = selected
             batch.company_details = details
             batch.save(update_fields=["company_details"])
-        return Response(prepare_master_results(batch))
+        fingerprint = hashlib.sha256("|".join(str(part) for part in (
+            batch.pk, request.user.pk, batch.updated_at.isoformat() if batch.updated_at else "",
+            selected, batch.company_gstin, batch.source_fingerprint)).encode()).hexdigest()
+        result_key, lock_key = f"gst-masters-result:{fingerprint}", f"gst-masters-lock:{batch.pk}"
+        if not force:
+            reused = cache.get(result_key)
+            if reused is not None:
+                logging.getLogger(__name__).info("masters batch=%s reused cached result", batch.pk)
+                return Response({**reused, "reused": True})
+        if not cache.add(lock_key, 1, self.LOCK_SECONDS):
+            return Response({"detail": "Master preparation is already running for this file. Please wait a moment and retry.",
+                             "code": "MASTER_PREPARATION_IN_PROGRESS"}, status=409)
+        started = time.perf_counter()
+        try:
+            result = prepare_master_results(batch)
+        finally:
+            cache.delete(lock_key)
+            logging.getLogger(__name__).info("masters batch=%s prepared in %.2fs", batch.pk, time.perf_counter() - started)
+        if result.get("ready"):
+            cache.set(result_key, result, self.REUSE_SECONDS)
+        return Response(result)
 
 class CompanyVerifyView(APIView):
     """Company Verification -> DB Storage step: verify the entered company by

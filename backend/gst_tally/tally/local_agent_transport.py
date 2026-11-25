@@ -57,7 +57,7 @@ class LocalAgentTallyClient:
                 raise TallyConnectionError("TALLY_AGENT_INVALID_ACK", "Agent returned no Tally response.")
             if job.status in (LocalTallyJob.FAILED, LocalTallyJob.RETRYABLE, LocalTallyJob.EXPIRED):
                 raise TallyConnectionError("TALLY_AGENT_JOB_FAILED", job.error_message or "Local Tally agent could not complete the request.")
-            time.sleep(0.5)
+            time.sleep(0.2)
         raise TallyConnectionError("TALLY_AGENT_RESULT_UNKNOWN", "Tally acknowledgement is pending; reconciliation is required before retrying.")
 
     def _heartbeat(self):
