@@ -82,6 +82,14 @@ async function detectWithHealth(health, blocked = false) {
   const local = health.tally
   if (local && !local.reachable) return { detected: false, code: 'tally_not_running', message: 'TallyPrime Not Connected. Open TallyPrime with a company and retry.' }
   if (local && local.reachable && !local.serial) return { detected: false, code: 'tally_license_unavailable', message: 'TallyPrime is connected but does not expose a license serial number (Educational Mode or not activated). Activate it and retry.' }
+  const srv = health.server
+  if (local?.serial && srv?.origin) {
+    const here = window.location.origin
+    const localWeb = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(here)
+    const connectorLocal = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(srv.origin)
+    if (localWeb !== connectorLocal) return { detected: false, code: 'backend_mismatch', tally_serial: local.serial, message: `Backend Mismatch: the installed Connector reports to ${srv.origin}, but this page uses ${localWeb ? 'the local' : 'the production'} backend. Run the Connector in ${localWeb ? 'developer mode (GSTR_CONNECTOR_DEV_ORIGIN=http://127.0.0.1:8000)' : 'production mode'} and retry.` }
+    if (typeof srv.last_status === 'number') return { detected: false, code: 'connector_server_error', tally_serial: local.serial, message: `The Connector cannot register with ${srv.origin} (HTTP ${srv.last_status}). Update the Connector to the latest version or check the server configuration.` }
+  }
   if (local?.serial) return { detected: false, code: 'awaiting_server', tally_serial: local.serial, message: 'Serial read from TallyPrime by the Connector. Waiting for the server to verify it…' }
   return { ...result, code: 'connector_waiting', message: 'The Connector is running. Waiting for it to read TallyPrime…' }
 }

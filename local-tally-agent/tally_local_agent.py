@@ -36,9 +36,10 @@ class HealthState(TypedDict):
     paired: bool
     enrollment: Optional[dict[str, str]]   # {'enrollment_id', 'proof'} while waiting to be paired
     tally: Optional[dict[str, Any]]        # last real Tally read: {'reachable': bool, 'serial': str}
+    server: Optional[dict[str, Any]]       # backend this Connector reports to: {'origin', 'last_status'}
 
 
-HEALTH: HealthState = {'paired': False, 'enrollment': None, 'tally': None}   # updated by run(); read by the loopback health server
+HEALTH: HealthState = {'paired': False, 'enrollment': None, 'tally': None, 'server': None}   # updated by run(); read by the loopback health server
 ALLOWED_ORIGINS: set[str] = set()                              # web origins allowed to call the health endpoint
 # Local development pages may read liveness and the real Tally state/serial (display only; registration is still
 # verified server-side). The pairing offer is never given to them unless the origin is also in ALLOWED_ORIGINS.
@@ -92,6 +93,8 @@ class HealthHandler(BaseHTTPRequestHandler):
             body['tally'] = HEALTH['tally']   # only the allowed web origin sees it; the serial is never invented here
         elif local_only and HEALTH['tally'] is not None:
             body['tally'] = HEALTH['tally']   # dev origins see the real Tally state/serial, but never the pairing offer
+        if (allowed or local_only) and HEALTH['server'] is not None:
+            body['server'] = HEALTH['server']   # lets the web app detect a Connector bound to a different backend
         data = json.dumps(body).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -380,7 +383,9 @@ def run(origin):
                         journal.acknowledged(job['job_id'])
                         handled_job = True   # more vouchers are probably queued: claim the next one now, no idle wait
             failures = 0
+            if HEALTH['server']: HEALTH['server']['last_status'] = 'ok'
         except urllib.error.HTTPError as exc:
+            if HEALTH['server']: HEALTH['server']['last_status'] = exc.code
             if exc.code in (404, 410) and not config.get('token') and config.get('enrollment'):
                 # The server no longer knows this pending enrollment (database reset, other backend, expiry). Retrying
                 # it forever would leave the Connector invisible, so discard it and enrol afresh on the next pass.
@@ -393,6 +398,7 @@ def run(origin):
                 failures += 1
                 logging.warning('VPS request rejected: HTTP %d', exc.code)
         except Exception as exc:
+            if HEALTH['server']: HEALTH['server']['last_status'] = 'unreachable'
             failures += 1
             logging.warning('Connector will retry (%s).', type(exc).__name__)
         time.sleep(0 if handled_job and not failures else random.uniform(2, 4) if not failures else random.uniform(1, min(60, 2**min(failures, 6))))
@@ -415,7 +421,7 @@ def main():
             release = json.loads(release_file.read_text(encoding='utf-8-sig'))
         except (OSError, ValueError):
             logging.error('release.json unreadable; using default origin.')
-            release = {'origin': 'https://saitallyexpert.in'}
+            release = {'origin': 'https://saiinfosysmdu.in'}
         # Developer-only: run from source against a LOCAL backend/web app instead of production.
         # Loopback http origins only; anything else is ignored, so the packaged connector cannot be redirected.
         global WEB_URL
@@ -429,6 +435,7 @@ def main():
             WEB_URL = dev_web if dev_web and loopback(dev_web) else ''
             logging.info('Developer origin override active: %s', release['origin'])
         parts = urlsplit(release['origin'])
+        HEALTH['server'] = {'origin': f'{parts.scheme}://{parts.netloc}', 'last_status': None}
         ALLOWED_ORIGINS.add(f'{parts.scheme}://{parts.netloc}')
         if dev_origin and loopback(dev_origin):
             ALLOWED_ORIGINS.update({'http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:5174', 'http://localhost:5174'})
