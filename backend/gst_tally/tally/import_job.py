@@ -53,6 +53,18 @@ def _is_stale(job):
     return (timezone.now() - job.heartbeat_at).total_seconds() > STALE_HEARTBEAT_SECONDS
 
 
+def _already_imported(job):
+    """job.imported counts every voucher accounted for (new + already in Tally). Report the two separately: already =
+    the final summary's figure, or the live figure recorded while the run is in progress. No schema change."""
+    result = job.result if isinstance(job.result, dict) else {}
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    value = summary.get("already_imported", result.get("live_already_imported", 0))
+    try:
+        return max(0, min(int(value or 0), job.imported))
+    except (TypeError, ValueError):
+        return 0
+
+
 def serialize_job(job):
     """Compact status the frontend polls -- never includes the full result
     payload until the job actually reaches a terminal status, so a mid-run
@@ -60,7 +72,8 @@ def serialize_job(job):
     data = {
         "job_id": str(job.job_id), "batch_id": job.batch_id, "status": job.status,
         "pause_requested": job.pause_requested,
-        "total": job.total, "processed": job.processed, "imported": job.imported,
+        "total": job.total, "processed": job.processed, "imported": job.imported - _already_imported(job),
+        "already_imported": _already_imported(job),
         "failed": job.failed, "verification_pending": job.verification_pending,
         "skipped": job.skipped, "current_invoice": job.current_invoice,
         "started_at": job.started_at.isoformat() if job.started_at else None,
@@ -101,7 +114,7 @@ def _counts_from_results(results):
     kept in one place so the live progress a job reports mid-run can never
     disagree with the final summary the same run produces at the end."""
     from .service import WRITE_ACCEPTED_PENDING_STATUS
-    imported = sum(1 for row in results if row.get("status") in ("Imported", "Already Imported"))
+    imported = sum(1 for row in results if row.get("status") in ("Imported", "Already Imported"))  # accounted-for; split is stored separately
     pending = sum(1 for row in results if row.get("status") == WRITE_ACCEPTED_PENDING_STATUS)
     skipped = sum(1 for row in results if row.get("status") in ("Skipped", "Needs Attention"))
     failed = sum(1 for row in results if row.get("status") not in
@@ -166,7 +179,9 @@ def _make_progress_callback(job_id):
         last_update[0] = now
         imported, failed, pending, skipped = _counts_from_results(results_so_far)
         processed = min(total, imported + failed + pending + skipped)
+        live_already = sum(1 for row in results_so_far if row.get("status") == "Already Imported")
         TallyImportJob.objects.filter(job_id=job_id).update(
+            result={"live_already_imported": live_already},
             status="VERIFYING" if current_invoice == "" and processed == total and total else "RUNNING",
             total=total, processed=processed, imported=imported, failed=failed,
             verification_pending=pending, skipped=skipped, current_invoice=current_invoice,

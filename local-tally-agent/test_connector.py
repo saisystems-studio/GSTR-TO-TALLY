@@ -8,6 +8,10 @@ import tally_local_agent as agent
 
 
 class ConnectorSafetyTests(unittest.TestCase):
+    def test_serial_read_survives_invalid_company_response(self):
+        with patch.object(agent, 'tally_post', side_effect=[b'not xml', b'<ENVELOPE><HEADER><STATUS>1</STATUS></HEADER><BODY><DATA><RESULT>700123456</RESULT></DATA></BODY></ENVELOPE>']):
+            self.assertEqual(agent.read_tally_identity()['tally_serial'], '700123456')
+
     def setUp(self):
         self.scope = {'installation_id': 'installation', 'agent_id': 1, 'user_id': 2,
                       'device_id': 3, 'company_gstin': '33AFHPM6103Q1Z8', 'tally_serial': '123456'}

@@ -56,6 +56,7 @@ urlpatterns = [
     path("product-licenses/", views.ProductLicenseListView.as_view()),
     path("product-licenses/<int:license_id>/", views.ProductLicenseDetailView.as_view()),
     path("product-licenses/<int:license_id>/extend/", views.ProductLicenseExtendView.as_view()),
+    path("product-licenses/<int:license_id>/transfer-owner/", views.ProductLicenseTransferOwnerView.as_view()),
     path("product-licenses/<int:license_id>/change-tally-serial/", views.ProductLicenseChangeTallySerialView.as_view()),
     path("product-licenses/<int:license_id>/devices/<int:device_id>/revoke/", views.ProductLicenseDeviceRevokeView.as_view()),
     path("product-licenses/<int:license_id>/<str:action>/", views.ProductLicenseStatusView.as_view()),

@@ -30,7 +30,10 @@ def tokens_for(user):
 
 def public_user(user):
     profile = getattr(user, "gst_profile", None)
-    return {"id": user.id, "username": user.username, "email": user.email, "phone_number": profile.phone_number if profile else ""}
+    data = {"id": user.id, "username": user.username, "email": user.email, "phone_number": profile.phone_number if profile else ""}
+    if user.username.startswith("nexus_"):  # Nexus-backed account: expose its User ID / Tally serial for the licence panel
+        data["tally_serial"] = user.username[len("nexus_"):]
+    return data
 
 
 def find_user(identifier):
@@ -143,6 +146,14 @@ class RefreshView(APIView):
             return Response({"detail": "Your session has expired. Please login again."}, status=401)
         # No server-side blacklist: the old refresh token is simply left to
         # expire naturally. A new access + refresh pair is issued below.
+        link_id = refresh.get("nexus_link")
+        if link_id:  # keep the device-bound Nexus claim; a revoked link cannot be refreshed
+            from nexus_auth.models import NexusLink
+            if not NexusLink.objects.filter(pk=link_id, user=user, revoked_reason="").exists():
+                return Response({"detail": "Your session has expired. Please login again."}, status=401)
+            new = RefreshToken.for_user(user)
+            new["nexus_link"] = link_id
+            return Response({"access": str(new.access_token), "refresh": str(new)})
         return Response(tokens_for(user))
 
 

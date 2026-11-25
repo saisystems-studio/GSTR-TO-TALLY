@@ -472,7 +472,67 @@ def odbc_sales_prerequisites(ledger_names, connect=None):
     return result
 
 
+def _parse_period_date(value):
+    """Tolerant parser for the date strings Tally/the Connector report (YYYYMMDD, 1-Apr-2026, 2026-04-01, ...)."""
+    from datetime import datetime as _dt
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+        return value if not hasattr(value, "date") else value.date()
+    for fmt in ("%Y%m%d", "%Y-%m-%d", "%d-%b-%Y", "%d-%b-%y", "%d-%m-%Y", "%d/%m/%Y", "%d %b %Y"):
+        try:
+            return _dt.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def live_tally_period():
+    """The period TallyPrime currently has open (Gateway > Alt+F2), read LIVE on every call.
+
+    ``$EndingAt`` over ODBC/JSON is the date of the company's last data, not the open period, and it does
+    not move when the operator changes the period, so it must never be used as the period bound. The
+    system variables ``##SVFromDate`` / ``##SVToDate`` do reflect Alt+F2. Returns (from_date, to_date),
+    or (None, None) when Tally cannot be read -- never a guessed value."""
+    import re
+    from .client import TallyClient
+    request = (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>LivePeriod</ID></HEADER>"
+        "<BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES>"
+        "<TDL><TDLMESSAGE><COLLECTION NAME=\"LivePeriod\"><TYPE>Company</TYPE><NATIVEMETHOD>Name</NATIVEMETHOD>"
+        "<COMPUTE>CurFrom:##SVFromDate</COMPUTE><COMPUTE>CurTo:##SVToDate</COMPUTE></COLLECTION></TDLMESSAGE></TDL>"
+        "</DESC></BODY></ENVELOPE>")
+    try:
+        raw = TallyClient().post(request.encode())
+        text = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else str(raw)
+    except Exception:
+        return None, None
+    start = re.search(r"<CURFROM[^>]*>\s*([^<\s]+)\s*</CURFROM>", text)
+    end = re.search(r"<CURTO[^>]*>\s*([^<\s]+)\s*</CURTO>", text)
+    return _parse_period_date(start.group(1) if start else ""), _parse_period_date(end.group(1) if end else "")
+
+
 def odbc_company_period(connect=None, requested_company=""):
+    """Selected company's books range plus the LIVE open period (``period_from`` / ``ending_at``).
+
+    Always re-read from Tally (or the Connector's latest report) -- nothing here is cached."""
+    result = dict(_read_company_period(connect=connect, requested_company=requested_company))
+    if getattr(settings, 'TALLY_LOCAL_AGENT_REQUIRED', False):
+        # VPS: the Connector reports ##SVFromDate/##SVToDate with every heartbeat (a few seconds old at most).
+        live_from = _parse_period_date(result.get("financial_year_from"))
+        live_to = _parse_period_date(result.get("financial_year_to"))
+        books = _parse_period_date(result.get("books_from"))
+        result.update(period_from=live_from, ending_at=live_to, books_from=books or result.get("books_from"))
+        return result
+    live_from, live_to = live_tally_period()
+    result["period_from"] = live_from
+    # $EndingAt (last data date) is not the open period: use the live period end, or no bound at all.
+    result["ending_at"] = live_to
+    return result
+
+
+def _read_company_period(connect=None, requested_company=""):
     if getattr(settings, 'TALLY_LOCAL_AGENT_REQUIRED', False):
         from gst_tally.connector_context import connection_snapshot
         return connection_snapshot()

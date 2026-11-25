@@ -9,6 +9,7 @@ local-tally-agent/out/
 local-tally-agent/build/
 local-tally-agent/release/*.exe
 local-tally-agent/*.spec
+local-tally-agent/.devbuild-venv/
 deploy/downloads/*.exe
 .venv/
 secrets/

@@ -30,8 +30,24 @@ def online(agent):
                 (timezone.now() - agent.last_seen_at).total_seconds() <= 45)
 
 
+NEXUS_MANAGED = 'NEXUS-MANAGED'   # marker on a local ProductLicense row that only mirrors a Nexus license
+
+
+def nexus_authorized(user, serial):
+    """True only while Nexus (the licensing authority) still authorises this user's serial. Each matching link is
+    re-validated with Nexus (bounded age), so a revoked/transferred/expired device stops being authorised promptly."""
+    if not serial or not getattr(user, 'nexus_links', None):
+        return False
+    from nexus_auth.service import revalidate
+    return any(revalidate(link) for link in user.nexus_links.filter(nexus_user_id=serial, revoked_reason=''))
+
+
 def license_allowed(license):
     from subscriptions.services import check_request_block
+    if license.display_activation_key == NEXUS_MANAGED:
+        # A mirror row is never trusted by itself: it is valid only while the live Nexus link is authorised.
+        return bool(license.customer.is_active and nexus_authorized(license.customer, license.licensed_tally_serial)
+                    and check_request_block(license.customer) is None)
     return (license.customer.is_active and license.status in ('ACTIVE', 'EXPIRING')
             and (not license.expiry_date or license.expiry_date >= timezone.localdate())
             and check_request_block(license.customer) is None)
@@ -115,10 +131,24 @@ class PairView(APIView):
     def post(self, request):
         row = get_object_or_404(ConnectorEnrollment.objects.select_for_update(),
                               enrollment_id=request.data.get('enrollment_id'))
-        if (row.expires_at <= timezone.now() or row.consumed_at or row.owner_id
-                or row.proof_hash != digest(request.data.get('proof', '')) or not fingerprint(request)):
-            raise ValidationError('Enrollment is invalid or already used. Open the connector to reconnect.')
-        row.owner, row.browser_device = request.user, fingerprint(request)
+        fp = fingerprint(request)
+        if not fp:
+            raise ValidationError('This browser could not be identified. Reload the page and try again.')
+        if row.expires_at <= timezone.now():
+            raise ValidationError('This pairing request has expired. The Connector will issue a new one automatically.')
+        if row.proof_hash != digest(request.data.get('proof', '')):
+            raise ValidationError('The pairing proof does not match this Connector.')
+        if row.consumed_at:
+            raise ValidationError('This Connector is already paired. Reload the page to continue.')
+        if row.owner_id:
+            # Idempotent retry by the SAME signed-in user on the SAME browser; anyone else is refused.
+            if row.owner_id == request.user.pk and row.browser_device == fp:
+                return Response({'paired': True})
+            raise ValidationError('This Connector is already being paired by another account or browser.')
+        links = request.user.nexus_links.all()
+        if links.exists() and not any(nexus_authorized(request.user, link.nexus_user_id) for link in links.filter(revoked_reason='')):
+            raise ValidationError('Your Nexus license is not authorised on this device. Sign in again.')
+        row.owner, row.browser_device = request.user, fp
         row.save(update_fields=['owner', 'browser_device'])
         return Response({'paired': True})
 
@@ -143,6 +173,9 @@ class ClaimEnrollmentView(PublicConnectorView):
         license = ProductLicense.objects.select_for_update().filter(customer=row.owner,
             licensed_tally_serial=str(request.data.get('tally_serial', '')).strip(),
             licensed_gstin=str(request.data.get('company_gstin', '')).strip().upper()).first()
+        if not license:
+            license = self.nexus_mirror(row.owner, str(request.data.get('tally_serial', '')).strip(),
+                                        str(request.data.get('company_gstin', '')).strip().upper())
         if not license or not license_allowed(license):
             return Response({'status': 'Company Verification Required'}, status=202)
         device = LicensedDevice.objects.filter(license=license, device_fingerprint=str(row.installation_id)).first()
@@ -160,6 +193,20 @@ class ClaimEnrollmentView(PublicConnectorView):
         row.agent, row.consumed_at = agent, timezone.now()
         row.save(update_fields=['agent', 'consumed_at'])
         return Response(self.credentials(agent))
+
+    @staticmethod
+    def nexus_mirror(owner, serial, gstin):
+        """Nexus-only accounts have no local licence. Create a mirror only when Nexus has authorised this owner's
+        serial and the Connector itself read that same serial and a GSTIN from TallyPrime. No licence is invented:
+        license_allowed() keeps re-checking the live Nexus link. An existing local licence is never touched."""
+        if not (re.fullmatch(r'[0-9A-Z]{15}', gstin) and serial and nexus_authorized(owner, serial)):
+            return None
+        key_hash = digest(f'nexus-managed|{owner.pk}|{serial}|{gstin}')
+        license, _ = ProductLicense.objects.select_for_update().get_or_create(
+            customer=owner, licensed_tally_serial=serial, licensed_gstin=gstin,
+            defaults={'activation_key_hash': key_hash, 'display_activation_key': NEXUS_MANAGED, 'plan': 'Nexus',
+                      'allowed_devices': 1, 'status': ProductLicense.ACTIVE, 'activated_at': timezone.now()})
+        return license
 
     @staticmethod
     def credentials(agent):
@@ -188,9 +235,18 @@ class StatusView(APIView):
     def get(self, request):
         agent = find_agent(request.user, fingerprint(request))
         result = snapshot(agent)
-        if not agent and ConnectorEnrollment.objects.filter(owner=request.user,
+        pending = ConnectorEnrollment.objects.filter(owner=request.user,
                 browser_device=fingerprint(request), consumed_at__isnull=True,
-                expires_at__gt=timezone.now()).exists():
+                expires_at__gt=timezone.now()).exists()
+        # Read-only diagnostics for the connection popup: is the pairing persisted, and does
+        # this account own a usable license (the Connector cannot finish registering without one)?
+        license = ProductLicense.objects.filter(customer=request.user).first()
+        # Nexus is the licensing authority for Nexus-linked accounts: they hold no local ProductLicense row, so the
+        # authorised, unrevoked, unexpired NexusLink (verified by Nexus at sign-in/poll) is what proves a linked licence.
+        nexus_ok = any(nexus_authorized(request.user, link.nexus_user_id) for link in request.user.nexus_links.filter(revoked_reason='')[:1])
+        result.update(pairing_persisted=bool(agent or pending),
+                      license_linked=bool((license and license_allowed(license)) or nexus_ok))
+        if not agent and pending:
             result.update(status='Connecting...', message='Open Tally and the registered company.')
         return Response(result)
 

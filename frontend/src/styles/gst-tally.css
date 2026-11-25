@@ -4347,7 +4347,7 @@ button:disabled {
 .step6-center-card .transfer3d-head { display: none; }
 .step6-progress-copy { display: flex; justify-content: space-between; color: #0b4a9d; font-size: 16px; margin-top: 4px; }
 .step6-progress-bar { height: 12px; margin: 6px 0 7px; border-radius: 99px; background: #e8f1f8; overflow: hidden; }
-.step6-progress-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #087cf0, #10b8ed); transition: width .25s ease; }
+.step6-progress-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #087cf0, #10b8ed); transition: width .6s cubic-bezier(.22,.61,.36,1); }
 .step6-progress-meta { color: #5e7c9d; font-size: 13px; font-weight: 600; margin: 0; }
 .step6-progress-meta span { margin: 0 8px; }
 .step6-status-grid { min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -4369,6 +4369,8 @@ button.step6-status-card { cursor: pointer; font: inherit; }
 .step6-actions button { border-radius: 9px; padding: 10px 16px; font-weight: 700; cursor: pointer; }
 .step6-secondary { color: #0670dc; background: #fff; border: 1px solid #b7daf7; }
 .step6-primary { color: #fff; background: #0868d1; border: 1px solid #0868d1; }
+.step6-start { background: #0d3177; border-color: #0d3177; color: #fff; }
+.step6-start:disabled { opacity: .55; cursor: not-allowed; }
 .step6-result-modal { max-width: 960px; width: calc(100vw - 48px); }
 .step6-loading-shell { align-items: center; justify-content: center; min-height: 0; }
 .step6-loading-content { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #41678f; font-size: 14px; }
@@ -13311,3 +13313,79 @@ Serial numbers friends   3D transfer hero (ImportTransfer3D.jsx): the visual cen
 .connector-download-button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:0 16px; border-radius:8px; background:#2563eb; color:#fff; font-weight:700; text-decoration:none; }
 .connector-download-button:hover { background:#1d4ed8; color:#fff; }
 .connector-install-note { margin:14px 0 0; font-weight:700; color:#166534; }
+
+.tally-connect-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border: 1px solid rgba(120,130,150,.25);
+  border-radius: 999px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(15,23,42,.06);
+  cursor: pointer;
+}
+.tally-connect-fab:hover { background: #f8fafc; }
+.tally-connect-dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; flex-shrink: 0; }
+.tally-connect-dot.is-connecting { background: #f59e0b; }
+.tally-connect-dot.is-ready { background: #22c55e; }
+@media (max-width: 560px) {
+  .tally-connect-fab { padding: 6px 10px; font-size: 11px; }
+  .tally-connect-fab span:last-child { display: none; }
+}
+.tally-connect-modal { width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 18px 20px 20px; position: relative; }
+.tally-connect-modal .modal-head { align-items: center; margin-bottom: 12px; }
+.tally-connect-modal .modal-head button { width: 32px; height: 32px; display: inline-grid; place-items: center; border-radius: 8px; line-height: 1; cursor: pointer; }
+.tally-connect-modal .modal-head button:hover { background: #f1f5f9; color: #0f172a; }
+.tally-connect-modal .connector-required-card { max-width: none; padding: 0; border: 0; box-shadow: none; background: transparent; text-align: center; }
+.tally-connect-modal .connector-required-card p { margin: 8px 0 16px; }
+.tally-connect-modal .connector-download-button { display: inline-block; }
+.modal-backdrop:has(.tally-connect-modal) { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 16px; overflow: auto; }
+.tally-connect-modal { margin: auto; max-height: calc(100dvh - 32px); overflow-y: auto; }
+.tally-connect-modal .modal-head button { font-size: 26px; color: #0f172a; background: #f1f5f9; }
+.tally-connect-modal .connector-required-card,
+.tally-connect-modal .connector-status-banner { margin: 0; }
+
+.device-transfer{max-width:520px;width:calc(100% - 32px);padding:20px}
+.device-transfer-details{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:12px 0}
+.device-transfer-details dt{font-weight:600}.device-transfer-details dd{margin:0;word-break:break-word}
+.device-transfer label{display:block;margin:10px 0}.device-transfer input{display:block;width:100%;margin-top:4px;padding:8px}
+.device-transfer-actions{display:flex;gap:10px;flex-wrap:wrap}.device-transfer-actions button{flex:1 1 160px;min-height:44px}
+
+/* Tally Connection popup: step-by-step status */
+.connection-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; text-align: left; }
+.connection-step { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; }
+.connection-step-icon { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; background: #cbd5e1; box-sizing: border-box; }
+.connection-step.is-ok .connection-step-icon { background: #16a34a; }
+.connection-step.is-fail .connection-step-icon { background: #dc2626; }
+.connection-step.is-loading .connection-step-icon { background: transparent; border: 3px solid #cbd5e1; border-top-color: #2563eb; animation: connectionSpin .8s linear infinite; }
+.connection-step.is-wait { opacity: .55; }
+.connection-step-body strong { display: block; font-size: 14px; color: #0f172a; }
+.connection-step-body p { margin: 2px 0 6px; font-size: 13px; line-height: 1.4; color: #475569; word-break: break-word; }
+.connection-step.is-fail .connection-step-body p { color: #b91c1c; }
+.connection-step.is-ok .connection-step-body strong { color: #166534; }
+.connection-step-body .connector-download-button { margin-top: 4px; padding: 6px 12px; font-size: 13px; }
+@keyframes connectionSpin { to { transform: rotate(360deg); } }
+
+.connector-success { display: grid; justify-items: center; gap: 10px; text-align: center; }
+.connector-success-tick { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: #16a34a; color: #fff; font-size: 28px; font-weight: 700; }
+
+/* File Format selector: compact single row, reuses the return-type card look (.return-option / .active / .return-check). */
+.format-row { display: flex; gap: 12px; flex-wrap: nowrap; margin: 0 0 18px; }
+.format-row .format-option { flex: 1 1 0; min-width: 0; min-height: 0; padding: 10px 14px; display: flex; align-items: center; justify-content: center; position: relative; }
+@media (max-width: 520px) { .format-row { flex-wrap: wrap; } .format-row .format-option { flex: 1 1 30%; } }
+
+/* Registration: Retry + Download & Install Connector sit together under the Tally Serial Number field. */
+.serial-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.serial-download { font-size: 13px; font-weight: 600; color: var(--blue, #1d4ed8); text-decoration: none; border: 1px solid currentColor; border-radius: 8px; padding: 5px 12px; }
+.serial-download:hover { background: rgba(29, 78, 216, .08); }
+.serial-install-hint { flex-basis: 100%; font-size: 12px; opacity: .8; }
+
+.serial-verified { margin: 6px 0 0; font-size: 13px; font-weight: 600; color: #15803d; display: flex; align-items: center; gap: 6px; }
+
+.step6-pending-note { grid-column: 1 / -1; margin: 6px 0 0; padding: 8px 10px; border: 1px solid #f2d49b; background: #fff8e8; color: #7a5200; border-radius: 8px; font-size: 13px; }

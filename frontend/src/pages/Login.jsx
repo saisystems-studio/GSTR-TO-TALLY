@@ -1,9 +1,90 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Toast from '../components/common/Toast.jsx'
 import LoadingButton from '../components/common/LoadingButton.jsx'
 import { clearSession, loginAccount, registerAccount, requestPasswordResetCode, resetPasswordWithCode } from '../services/authApi.js'
 import { normalizeContactNumber, normalizeLoginIdentifier, validateLogin, validatePasswordReset, validateRegistration } from '../utils/authForms.js'
+import * as nexus from '../services/nexusApi.js'
 import '../styles/gst-tally.css'
+
+// The Connector answers on loopback only to the configured web origin (local dev origins or the HTTPS site).
+const CONNECTOR_HEALTH_URL = 'http://127.0.0.1:47831/health'
+// Public static installer (no login needed); same path the import page uses.
+const CONNECTOR_DOWNLOAD_URL = '/gstr2tally/downloads/GSTR2TallyConnectorSetup.exe'
+async function probeConnector() {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 1500)
+  try {
+    const response = await fetch(CONNECTOR_HEALTH_URL, { signal: controller.signal, cache: 'no-store' })
+    const data = response.ok ? await response.json() : null
+    return data?.app === 'GSTR2TallyConnector' ? data : null
+  } catch { return null } finally { clearTimeout(timer) }
+}
+// When the normal (CORS) probe fails, an opaque no-cors request tells "something is listening but this origin is not
+// allowed" (it succeeds, unreadable) apart from "nothing is listening" (it fails: connection refused).
+async function connectorListening() {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 1500)
+  try { await fetch(CONNECTOR_HEALTH_URL, { mode: 'no-cors', signal: controller.signal, cache: 'no-store' }); return true } catch { return false } finally { clearTimeout(timer) }
+}
+// Connector Offline / TallyPrime Offline / Serial Failed are told apart by the Connector itself plus the server's
+// verified read. The serial is only ever taken from the server (which got it from the Connector's Tally read).
+let detectInFlight = null
+// Pairing is attempted ONCE per enrollment per page load (success or failure): a 400 is never retried, and React
+// StrictMode's double effects / poll ticks cannot re-send it. A 429 starts a cooldown during which NO request is sent.
+const pairAttempted = new Set()
+let throttledUntil = 0
+const throttledResult = () => {
+  const seconds = Math.max(1, Math.ceil((throttledUntil - Date.now()) / 1000))
+  return { detected: false, code: 'throttled', retry_after: seconds, message: `Backend API throttled (HTTP 429). The server asked us to wait; you can retry in ${seconds} seconds.` }
+}
+const noteThrottle = error => { if (error?.status === 429) { throttledUntil = Date.now() + (error.retryAfter || 60) * 1000; return true } return false }
+// One detection at a time: a Retry click or poll tick that overlaps a running one shares its result (no request pile-up).
+function detectVerifiedSerial() {
+  if (Date.now() < throttledUntil) return Promise.resolve(throttledResult())   // cooling down: send nothing
+  if (!detectInFlight) detectInFlight = runDetection().finally(() => { detectInFlight = null })
+  return detectInFlight
+}
+async function runDetection() {
+  const health = await probeConnector()
+  const blocked = !health && await connectorListening()
+  let result = await detectWithHealth(health, blocked)
+  if (result.detected && !health && !blocked) {
+    // The server still holds a recent report, but nothing is listening any more: that serial is stale, never show it as verified.
+    result = { detected: false, code: 'connector_offline', message: 'Connector Offline: nothing is listening on this PC. Start the GSTR2Tally Connector and retry.' }
+  }
+  // A server answer other than 'connector_offline' means a Connector is known to it even if this browser's origin cannot call loopback.
+  const knownToServer = Boolean(result.detected || (result.code && !['connector_offline', 'api_error'].includes(result.code)))
+  return { ...result, connector_running: Boolean(health?.running) || blocked || knownToServer }
+}
+async function detectWithHealth(health, blocked = false) {
+  if (health?.enrollment?.enrollment_id && health.enrollment.proof) {
+    // Running but not yet linked to this browser: link it (same pairing call as the #connector= link) so the server
+    // can attribute the Connector's verified Tally serial to this registration page.
+    const id = health.enrollment.enrollment_id
+    if (!pairAttempted.has(id)) {
+      pairAttempted.add(id)
+      try { await nexus.pairConnector(id, health.enrollment.proof) } catch (error) { if (noteThrottle(error)) return throttledResult() }
+    }
+  }
+  let result
+  try { result = await nexus.detectTallySerial() } catch (error) {
+    if (noteThrottle(error)) return throttledResult()
+    return { detected: false, code: 'api_error', message: `Cannot reach the GSTR2Tally server: ${error.message || 'network error'}. Retry.` }
+  }
+  if (result.detected) return result
+  if (!health && blocked) {
+    return { ...result, code: 'browser_blocked', message: `Browser Connection Blocked: the Connector is running on this PC but does not allow this website address (${window.location.origin}). Open GSTR2Tally from its authorized address and retry.` }
+  }
+  if (!health) {
+    return { ...result, code: 'connector_offline', message: 'Connector Offline: nothing is listening on this PC. Start the GSTR2Tally Connector (or install it) and retry.' }
+  }
+  // Health succeeded: never report the Connector as not running. Use what it actually read from TallyPrime.
+  const local = health.tally
+  if (local && !local.reachable) return { detected: false, code: 'tally_not_running', message: 'TallyPrime Not Connected. Open TallyPrime with a company and retry.' }
+  if (local && local.reachable && !local.serial) return { detected: false, code: 'tally_license_unavailable', message: 'TallyPrime is connected but does not expose a license serial number (Educational Mode or not activated). Activate it and retry.' }
+  if (local?.serial) return { detected: false, code: 'awaiting_server', tally_serial: local.serial, message: 'Serial read from TallyPrime by the Connector. Waiting for the server to verify it…' }
+  return { ...result, code: 'connector_waiting', message: 'The Connector is running. Waiting for it to read TallyPrime…' }
+}
 
 const initialRegister = {
   full_name: '',
@@ -47,11 +128,79 @@ export default function Login({ onLogin, notice }) {
   const [resetForm, setResetForm] = useState({ code: '', new_password: '', confirm_password: '' })
   const [showResetPassword, setShowResetPassword] = useState(false)
 
+  // Nexus mode (central licensing). When disabled every handler below keeps
+  // the original local behaviour untouched.
+  const [nexusOn, setNexusOn] = useState(false)
+  const [tally, setTally] = useState({ detected: false, message: 'Checking TallyPrime…' })
+  const [installStarted, setInstallStarted] = useState(false)
+  const [pwChange, setPwChange] = useState({ ticket: '', current_password: '', new_password: '' })
+  const nexusLoaded = useRef(false)
+  useEffect(() => {
+    if (nexusLoaded.current) return
+    nexusLoaded.current = true
+    nexus.getNexusConfig().then(config => setNexusOn(Boolean(config.enabled)))
+  }, [])
+  // The connector opens the app with #connector=<enrollment>.<proof>; bind this browser to it so the
+  // verified Tally serial can be shown at registration (before any account exists).
+  useEffect(() => {
+    if (!nexusOn) return
+    const match = /connector=([0-9a-f-]{36})\.([A-Za-z0-9_-]+)/i.exec(window.location.hash || '')
+    if (match && !pairAttempted.has(match[1])) { pairAttempted.add(match[1]); nexus.pairConnector(match[1], match[2]).then(() => detectSerial()).catch(error => setTally({ detected: false, message: error.message || 'Connector pairing failed. Restart the connector and retry.' })) }
+  }, [nexusOn])
+  const [cooldown, setCooldown] = useState(0)
+  useEffect(() => {
+    if (tally.code !== 'throttled') { setCooldown(0); return undefined }
+    setCooldown(tally.retry_after || 60)
+    const timer = window.setInterval(() => setCooldown(value => Math.max(0, value - 1)), 1000)
+    return () => window.clearInterval(timer)
+  }, [tally])
+  const detectSerial = () => {
+    if (Date.now() < throttledUntil) { setTally(throttledResult()); return }
+ setTally({ detected: false, message: 'Checking TallyPrime…' }); detectVerifiedSerial().then(setTally).catch(error => setTally({ detected: false, message: error.message || 'Unable to reach the server.' })) }
+  useEffect(() => { if (nexusOn && mode === 'register') detectSerial() }, [nexusOn, mode])
+  // While the registration page is open and Tally/the connector is not detected yet, quietly re-check every
+  // 5 seconds so the serial fills in by itself as soon as TallyPrime/the connector comes online.
+  useEffect(() => {
+    if (!(nexusOn && mode === 'register') || !tally.detected) return undefined
+    let stopped = false, misses = 0
+    const timer = window.setInterval(async () => {
+      if (stopped || document.hidden) return
+      const health = await probeConnector()
+      if (stopped) return
+      if (health || (await connectorListening())) { misses = 0; return }
+      if (++misses >= 2) detectVerifiedSerial().then(result => { if (!stopped) setTally(result) }).catch(() => {})
+    }, 10000)
+    return () => { stopped = true; window.clearInterval(timer) }
+  }, [nexusOn, mode, tally.detected])
+  useEffect(() => {
+    if (!(nexusOn && mode === 'register') || tally.detected) return undefined
+    let stopped = false, timer = 0, attempt = 0
+    // Auto-recovery without hammering: a cheap loopback health check each tick (5s for the first minute, then 30s, and
+    // paused while the tab is hidden). The server is only asked when the Connector actually answered.
+    const tick = async () => {
+      if (stopped) return
+      if (!document.hidden) {
+        const health = await probeConnector()
+        if (stopped) return
+        if (health?.tally?.serial) detectVerifiedSerial().then(result => { if (!stopped) setTally(result) }).catch(() => {})
+      }
+      attempt += 1
+      timer = window.setTimeout(tick, attempt < 12 ? 5000 : 30000)
+    }
+    timer = window.setTimeout(tick, 5000)
+    return () => { stopped = true; window.clearTimeout(timer) }
+  }, [nexusOn, mode, tally.detected])
+  // Legacy activation links (?activate=1) are retired: they open Sign In with the User ID prefilled.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    if (q.get('user_id') && q.get('activate') === '1') { setLogin(l => ({ ...l, identifier: q.get('user_id') })); setMode('login') }
+  }, [])
+
   const notify = (message, kind = 'success') => setToast({ message, kind })
   useEffect(() => { if (notice) notify(notice, 'error') }, [notice])
 
   const switchMode = next => {
-    setMode(next)
+    setMode(next === 'activate' ? 'login' : next)  // legacy activation navigation lands on Sign In
     setErrors({})
   }
   const updateRegister = event => {
@@ -64,11 +213,22 @@ export default function Login({ onLogin, notice }) {
   }
   const submitRegister = async event => {
     event.preventDefault()
-    const nextErrors = validateRegistration(register)
+    const nextErrors = nexusOn ? validateRegistration({ ...register, password: 'x'.repeat(8), confirm_password: 'x'.repeat(8) }) : validateRegistration(register)
+    if (nexusOn && !tally.detected) return   // the inline status under the serial field already explains why
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
     setBusy(true)
     try {
+      if (nexusOn) {
+        const result = await nexus.nexusRegister({ name: register.full_name.trim(), email: register.email.trim(), contact_number: register.contact_number })
+        setLogin(current => ({ ...current, identifier: result.user_id || tally.tally_serial, password: '' }))
+        setRegister(initialRegister)
+        const mailFailed = Boolean(result.welcome_email) && result.welcome_email !== 'submitted'
+        const sentTo = result.email_sent_to ? ` (${result.email_sent_to})` : ''
+        notify(mailFailed ? `Account created, but the credentials email${sentTo} could not be sent. Use Forgot Password on the sign-in page, or contact support.` : (result.message || `Registered. Check your email${sentTo} for your temporary password.`), mailFailed ? 'error' : 'success')
+        switchMode('login')
+        return
+      }
       await registerAccount({
         username: deriveUsername(register.email),
         email: register.email.trim(),
@@ -83,23 +243,38 @@ export default function Login({ onLogin, notice }) {
       notify('Account created successfully. Please login to continue.')
       switchMode('login')
     } catch (error) {
-      setErrors(error.errors || {})
-      notify(error.message || 'Registration failed.', 'error')
+      if (['connector_offline', 'tally_not_running', 'tally_license_unavailable'].includes(error.code)) {
+        setTally({ detected: false, code: error.code, message: error.message })   // shown inline under the serial field
+        detectSerial()
+      } else {
+        setErrors(error.errors || {})
+        notify(error.message || 'Registration failed.', 'error')
+      }
     } finally {
       setBusy(false)
     }
   }
   const submitLogin = async event => {
     event.preventDefault()
-    const nextErrors = validateLogin(login)
+    const nextErrors = nexusOn ? ({ ...(login.identifier.trim() ? {} : { identifier: 'Enter your User ID.' }), ...(login.password ? {} : { password: 'Password is required.' }) }) : validateLogin(login)
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
     setBusy(true)
     try {
-      const session = await loginAccount(normalizeLoginIdentifier(login.identifier), login.password)
+      let session
+      if (nexusOn) {
+        try { session = await nexus.nexusLogin(login.identifier.trim(), login.password) } catch (error) {
+          if (error.code !== 'device_conflict') throw error
+          // OK revokes the previous device through Nexus; Cancel leaves it active.
+          if (!window.confirm(error.message)) { notify('Sign-in cancelled. Your other device remains active.', 'info'); return }
+          session = await nexus.nexusLogin(login.identifier.trim(), login.password, true)
+        }
+      } else session = await loginAccount(normalizeLoginIdentifier(login.identifier), login.password)
       onLogin(session?.user || null)
     } catch (error) {
-      notify(error.message || 'Login failed.', 'error')
+      if (error.code === 'password_change_required') { setPwChange({ ticket: error.ticket, current_password: login.password, new_password: '' }); switchMode('change') }
+      else if (error.code === 'activation_required' || error.code === 'device_mismatch') notify('This device could not be verified. Open TallyPrime with the Connector running, make sure it is the Tally Serial Number you are signing in with, then retry.', 'error')
+      else notify(error.message || 'Login failed.', 'error')
     } finally {
       setBusy(false)
     }
@@ -114,24 +289,35 @@ export default function Login({ onLogin, notice }) {
     const { name, value } = event.target
     setResetForm(current => ({ ...current, [name]: value }))
   }
-  const submitForgotEmail = async event => {
-    event.preventDefault()
-    if (!forgotEmail.trim() || !forgotEmail.includes('@')) {
-      setErrors({ forgot_email: 'Enter a valid email address.' })
+  const [resendIn, setResendIn] = useState(0)
+  useEffect(() => {
+    if (resendIn <= 0) return undefined
+    const timer = setTimeout(() => setResendIn(value => value - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [resendIn])
+  // Success is announced only after the server confirms the request was accepted; any upstream/mail failure is
+  // shown as an error and the user stays where they are. The wording is the same whether or not the account exists.
+  const sendResetCode = async ({ resend = false } = {}) => {
+    if (!forgotEmail.trim() || (!nexusOn && !forgotEmail.includes('@'))) {
+      setErrors({ forgot_email: nexusOn ? 'Enter your registered email address or Tally Serial Number.' : 'Enter a valid email address.' })
       return
     }
     setErrors({})
     setBusy(true)
     try {
-      await requestPasswordResetCode(forgotEmail.trim().toLowerCase())
-      notify('If this email is registered, a 6-digit verification code has been sent to it.')
+      let result = {}
+      if (nexusOn) result = await nexus.nexusForgot(forgotEmail.trim()); else await requestPasswordResetCode(forgotEmail.trim().toLowerCase())
+      notify(resend ? 'If the account exists, a new code has been emailed. Previous codes no longer work.' : 'If the account exists, a verification code has been emailed to the registered address. It is valid for 10 minutes.')
+      setResendIn(Number(result.retry_after) || 60)
       setForgotStep('code')
     } catch (error) {
-      notify(error.message || 'Unable to send verification code.', 'error')
+      if (error.code === 'resend_too_soon') { setResendIn(Number(error.retry_after) || 60); setForgotStep('code') }
+      notify(error.message || 'Unable to send verification code. Please try again.', 'error')
     } finally {
       setBusy(false)
     }
   }
+  const submitForgotEmail = event => { event.preventDefault(); return sendResetCode() }
   const submitResetPassword = async event => {
     event.preventDefault()
     const nextErrors = validatePasswordReset(resetForm)
@@ -140,7 +326,7 @@ export default function Login({ onLogin, notice }) {
     if (Object.keys(nextErrors).length) return
     setBusy(true)
     try {
-      await resetPasswordWithCode(forgotEmail.trim().toLowerCase(), resetForm.code.trim(), resetForm.new_password)
+      if (nexusOn) await nexus.nexusReset(resetForm.code.trim(), resetForm.new_password, forgotEmail.trim()); else await resetPasswordWithCode(forgotEmail.trim().toLowerCase(), resetForm.code.trim(), resetForm.new_password)
       notify('Password updated. You can now log in with your new password.')
       setLogin({ identifier: forgotEmail, password: '', remember: true })
       switchMode('login')
@@ -150,6 +336,14 @@ export default function Login({ onLogin, notice }) {
       setBusy(false)
     }
   }
+  const run = fn => async event => {
+    event.preventDefault(); setBusy(true)
+    try { await fn() } catch (error) { notify(error.message || 'Request failed.', 'error') } finally { setBusy(false) }
+  }
+  const submitChangePw = run(async () => {
+    await nexus.nexusChangePassword(pwChange.ticket, pwChange.current_password, pwChange.new_password)
+    notify('Password changed. Please sign in with your new password.'); setLogin(l => ({ ...l, password: '' })); switchMode('login')
+  })
   return <main className="auth-page">
     <header className="auth-topbar">
       <div className="auth-topbar-brand"><span className="brand-mark">GT</span><span>GSTR 2 Tally</span></div>
@@ -169,8 +363,8 @@ export default function Login({ onLogin, notice }) {
                 <p className="auth-card-subtitle auth-card-subtitle-tight">Login to continue your GST import process</p>
               </div>
             </div>
-            <Field label="Email / Phone Number" error={errors.identifier} icon={<MailIcon />}>
-              <input name="identifier" placeholder="Enter email address or phone number" value={login.identifier} onChange={updateLogin} autoComplete="username" />
+            <Field label={nexusOn ? 'User ID (Tally Serial Number)' : 'Email / Phone Number'} error={errors.identifier} icon={<MailIcon />}>
+              <input name="identifier" placeholder={nexusOn ? 'Enter User ID' : 'Enter email address or phone number'} value={login.identifier} onChange={updateLogin} autoComplete="username" />
             </Field>
             <PasswordField label="Password" name="password" value={login.password} visible={showPassword} onVisible={() => setShowPassword(value => !value)} onChange={updateLogin} error={errors.password} autoComplete="current-password" icon={<LockIcon />} />
             <div className="auth-row">
@@ -195,19 +389,36 @@ export default function Login({ onLogin, notice }) {
             <Field label="Full Name" error={errors.full_name} icon={<UserIcon />}><input name="full_name" placeholder="Enter full name" value={register.full_name} onChange={updateRegister} autoComplete="name" /></Field>
             <Field label="Email" error={errors.email} icon={<MailIcon />}><input name="email" type="email" placeholder="Enter email address" value={register.email} onChange={updateRegister} autoComplete="email" /></Field>
             <Field label="Contact Number" error={errors.contact_number || errors.phone_number} icon={<PhoneIcon />}><input name="contact_number" inputMode="numeric" placeholder="Enter 10 digit mobile number" maxLength={10} value={register.contact_number} onChange={updateRegister} autoComplete="tel" /></Field>
-            <PasswordField label="Password" name="password" value={register.password} visible={showPassword} onVisible={() => setShowPassword(value => !value)} onChange={updateRegister} error={errors.password} autoComplete="new-password" icon={<LockIcon />} />
-            <PasswordField label="Confirm Password" name="confirm_password" value={register.confirm_password} visible={showConfirm} onVisible={() => setShowConfirm(value => !value)} onChange={updateRegister} error={errors.confirm_password} autoComplete="new-password" icon={<LockIcon />} />
-            <LoadingButton className="wide-button auth-gradient-button" loading={busy} type="submit">
+            {nexusOn && <Field label="Tally Serial Number (User ID)" error={!tally.detected ? tally.message : ''}>
+              <input value={tally.detected ? (tally.tally_serial || '') : ''} readOnly placeholder="Detected automatically from TallyPrime" />
+              {tally.detected && <p className="serial-verified" role="status"><span aria-hidden="true">✓</span> Tally Serial Verified</p>}
+            </Field>}
+            {nexusOn && !tally.detected && <p className="auth-switch serial-actions">
+              <button type="button" onClick={detectSerial} disabled={cooldown > 0}>{cooldown > 0 ? `Retry in ${cooldown}s` : 'Retry'}</button>
+              {/* Download is offered only when the Connector itself is not answering; a running Connector is never re-downloaded. */}
+              {!tally.connector_running && <a className="serial-download" href={CONNECTOR_DOWNLOAD_URL} download onClick={() => setInstallStarted(true)}>Download &amp; Install Connector</a>}
+              {!tally.connector_running && installStarted && <span className="serial-install-hint">Run the installer, then keep this page open — it will detect TallyPrime automatically.</span>}
+            </p>}
+            {!nexusOn && <PasswordField label="Password" name="password" value={register.password} visible={showPassword} onVisible={() => setShowPassword(value => !value)} onChange={updateRegister} error={errors.password} autoComplete="new-password" icon={<LockIcon />} />}
+            {!nexusOn && <PasswordField label="Confirm Password" name="confirm_password" value={register.confirm_password} visible={showConfirm} onVisible={() => setShowConfirm(value => !value)} onChange={updateRegister} error={errors.confirm_password} autoComplete="new-password" icon={<LockIcon />} />}
+            <LoadingButton className="wide-button auth-gradient-button" loading={busy} disabled={nexusOn && !tally.detected} type="submit">
               {busy ? <span>Creating account…</span> : <><span>Create Account</span><ArrowRightIcon /></>}
             </LoadingButton>
             <p className="auth-switch">Already have an account? <button type="button" onClick={() => switchMode('login')}>Login here</button></p>
+          </form>}
+
+          {mode === 'change' && <form className="auth-form auth-form-panel" onSubmit={submitChangePw} noValidate>
+            <h2 className="auth-card-title">Set a New Password</h2>
+            <p className="auth-card-subtitle">Replace your temporary password to continue.</p>
+            <Field label="New Password"><input type="password" value={pwChange.new_password} onChange={e => setPwChange({ ...pwChange, new_password: e.target.value })} autoComplete="new-password" /></Field>
+            <LoadingButton className="wide-button" loading={busy} type="submit">Change Password</LoadingButton>
           </form>}
 
           {mode === 'forgot' && <>
             <h2 className="auth-card-title">{HEADINGS.forgot.title}</h2>
             <p className="auth-card-subtitle">{forgotStep === 'email' ? HEADINGS.forgot.subtitle : 'Enter the code we emailed you and choose a new password.'}</p>
             {forgotStep === 'email' ? <form className="auth-form auth-form-panel" key="forgot-email" onSubmit={submitForgotEmail} noValidate>
-              <Field label="Registered Email" error={errors.forgot_email}><input type="email" value={forgotEmail} onChange={event => setForgotEmail(event.target.value)} autoComplete="email" /></Field>
+              <Field label={nexusOn ? 'Registered Email or Tally Serial Number' : 'Registered Email'} error={errors.forgot_email}><input type={nexusOn ? 'text' : 'email'} value={forgotEmail} onChange={event => setForgotEmail(event.target.value)} autoComplete={nexusOn ? 'off' : 'email'} /></Field>
               <LoadingButton className="wide-button" loading={busy} type="submit">Send Verification Code</LoadingButton>
               <p className="auth-switch"><button type="button" onClick={() => switchMode('login')}>Back to Login</button></p>
             </form> : <form className="auth-form auth-form-panel" key="forgot-code" onSubmit={submitResetPassword} noValidate>
@@ -216,7 +427,7 @@ export default function Login({ onLogin, notice }) {
               <PasswordField label="Confirm New Password" name="confirm_password" value={resetForm.confirm_password} visible={showResetPassword} onVisible={() => setShowResetPassword(value => !value)} onChange={updateResetForm} error={errors.confirm_password} autoComplete="new-password" />
               <LoadingButton className="wide-button" loading={busy} type="submit">Reset Password</LoadingButton>
               <p className="auth-switch">
-                <button type="button" onClick={() => setForgotStep('email')}>Resend Code</button> · <button type="button" onClick={() => switchMode('login')}>Back to Login</button>
+                <button type="button" disabled={busy || resendIn > 0} onClick={() => sendResetCode({ resend: true })}>{resendIn > 0 ? `Resend Code (${resendIn}s)` : 'Resend Code'}</button> · <button type="button" onClick={() => switchMode('login')}>Back to Login</button>
               </p>
             </form>}
           </>}

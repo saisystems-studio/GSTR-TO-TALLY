@@ -68,7 +68,7 @@ CANONICAL_FIELDS = ["invoice_date", "supplier_gstin", "supplier_name", "customer
 _COMMON_ALIASES = {
     "invoice_no": ["Invoice number", "Invoice No", "Invoice Number", "invoice_no", "inum"],
     "invoice_type": ["Invoice type", "Invoice Type", "invoice_type", "inv_typ"],
-    "invoice_date": ["Invoice Date", "invoice_date", "idt"],
+    "invoice_date": ["Invoice Date", "invoice_date", "idt", "dt"],
     "invoice_value": ["Invoice Value", "Invoice Value (₹)", "Total Value", "invoice_value", "val"],
     "taxable_value": ["Taxable Value", "taxable_value", "txval"],
     "tax_rate": ["Rate (%)", "GST Rate", "Rate", "Tax %", "tax_rate", "rt"],
@@ -425,11 +425,15 @@ def read_json(file_obj):
     payload = load_json_upload(file_obj)
     if not isinstance(payload, dict):
         raise ValueError("Unsupported JSON structure")
-    seller = payload.get("SellerDtls", {})
-    company_candidates = [payload.get("gstin"), payload.get("supplier_gstin"), payload.get("seller_gstin"), seller.get("Gstin")]
-    filing_period = str(payload.get("fp", ""))
+    # The official GSTR-2B export wraps everything as {"data": {"gstin", "rtnprd", "docdata": {"b2b": [...], "cdnr": [...]}}, "chksum"};
+    # GSTR-1/2A style files keep {"gstin", "fp", "b2b": [...]} at the top level. Read whichever layout is present.
+    inner = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    docdata = inner.get("docdata") if isinstance(inner.get("docdata"), dict) else {}
+    seller = payload.get("SellerDtls", {}) or inner.get("SellerDtls", {}) or {}
+    company_candidates = [inner.get("gstin"), payload.get("gstin"), payload.get("supplier_gstin"), payload.get("seller_gstin"), seller.get("Gstin")]
+    filing_period = str(payload.get("fp") or inner.get("fp") or inner.get("rtnprd") or "")
     raw_rows = []
-    for party_index, party in enumerate(payload.get("b2b", []) or [], 1):
+    for party_index, party in enumerate(payload.get("b2b") or inner.get("b2b") or docdata.get("b2b") or [], 1):
         gstin = str(party.get("ctin") or party.get("gstin") or "").strip().upper()
         for invoice_index, invoice in enumerate(party.get("inv", []) or [], 1):
             items = invoice.get("itms", []) or [{}]

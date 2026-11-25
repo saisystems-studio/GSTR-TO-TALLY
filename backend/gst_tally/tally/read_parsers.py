@@ -41,6 +41,10 @@ def _decode(raw):
     return raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
 
 
+_UNBOUND_PREFIX_TAG = re.compile(r'<(/?)(?!xml)([A-Za-z_][\w.-]*):([A-Za-z_][\w.-]*)')
+_UNBOUND_PREFIX_ATTR = re.compile(r'(\s)(?!xmlns)([A-Za-z_][\w.-]*):([A-Za-z_][\w.-]*)=')
+
+
 def _sanitize(text):
     return _FORBIDDEN_HEX.sub("", _FORBIDDEN_DECIMAL.sub("", text))
 
@@ -165,7 +169,16 @@ def parse_export_envelope(raw, expected_company="", operation="tally_read"):
     try:
         root = ET.fromstring(_sanitize(text))
     except ET.ParseError as exc:
-        return {**base, "kind": "UNPARSABLE", "reason": f"Tally returned unparsable XML for {operation}: {exc}"}
+        # Tally emits namespace-prefixed tags/attributes (e.g. UDF:Field) without declaring the
+        # prefix, which strict XML rejects. That made the voucher collection read fail and fall
+        # back to a partial Day Book, so vouchers that DO exist read as 'not found'. Flatten the
+        # prefixes and retry; the data itself is untouched.
+        try:
+            flattened = _UNBOUND_PREFIX_TAG.sub(r'<'+chr(92)+'1'+chr(92)+'2_'+chr(92)+'3', _sanitize(text))
+            flattened = _UNBOUND_PREFIX_ATTR.sub(chr(92)+'1'+chr(92)+'2_'+chr(92)+'3=', flattened)
+            root = ET.fromstring(flattened)
+        except ET.ParseError:
+            return {**base, "kind": "UNPARSABLE", "reason": f"Tally returned unparsable XML for {operation}: {exc}"}
 
     kind = classify_envelope(root)
     request = _text(root, "TALLYREQUEST")

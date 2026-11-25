@@ -152,6 +152,14 @@ export function licenseVerificationStatus(status) {
       detail: 'Check your Tally connection and try again.',
     }
   }
+  if (code === 'LICENSE_ASSIGNED_TO_ANOTHER_ACCOUNT') {
+    return {
+      label: 'Blocked',
+      tone: 'error',
+      title: 'License Assigned to Another Account',
+      detail: 'This Tally serial is registered to a different account. Sign in with that account or ask your administrator to transfer the license.',
+    }
+  }
   if (code === 'PRODUCT_LICENSE_NOT_CONFIGURED') {
     return {
       label: 'Blocked',
@@ -387,16 +395,21 @@ export function shouldAutoStartImport({
 }) {
   return Boolean(autoStartImport && pageReady && !alreadyTriggered && !importBusy && !hasJob && !hasResult)
 }
-export const RETURN_TYPE_FILE_FORMATS = Object.freeze({
-  GSTR1: { label: 'JSON', extension: '.json' },
-  GSTR2A: { label: 'CSV', extension: '.csv' },
-  GSTR2B: { label: 'Excel', extension: '.xlsx' },
+// Every return type (GSTR-1, GSTR-2A, GSTR-2B) accepts every format; the backend parses all nine combinations.
+export const FILE_FORMATS = Object.freeze({
+  JSON: { label: 'JSON', extension: '.json', accept: '.json' },
+  CSV: { label: 'CSV', extension: '.csv', accept: '.csv' },
+  Excel: { label: 'Excel', extension: '.xlsx', accept: '.xlsx,.xls' },
 })
 
-export function defaultFileFormat(returnType) {
-  return RETURN_TYPE_FILE_FORMATS[returnType]?.label || ''
+export function defaultFileFormat() {
+  return 'JSON'
+}
+
+export function fileFormatAccept(fileFormat) {
+  return FILE_FORMATS[fileFormat]?.accept || ''
 }
 
 export function fileFormatExtension(fileFormat) {
-  return { JSON: '.json', CSV: '.csv', Excel: '.xlsx' }[fileFormat] || ''
+  return FILE_FORMATS[fileFormat]?.extension || ''
 }

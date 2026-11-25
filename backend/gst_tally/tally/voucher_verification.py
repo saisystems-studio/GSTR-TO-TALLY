@@ -313,6 +313,9 @@ def _verification_details(voucher, match):
     expected_rows = voucher.get("rate_allocations") or voucher.get("items") or []
     expected_purchase = [{"ledger": str(row.get("account_ledger") or row.get("sales_ledger") or "").strip(),
                           "gst_rate": _rate(row.get("gst_rate")),
+                          # False when the source (e.g. the portal's invoice-level GSTR-2B sheet) carries no rate at all; such a
+                          # line is booked on the common rate-less ledger and cannot be matched by rate (see mappings.py).
+                          "rate_available": row.get("rate_available", True) is not False,
                           "amount": _number(row.get("taxable_value"))} for row in expected_rows]
     actual_entries = match.get("ledger_entries") or match.get("taxable_allocations") or []
     expected_tax = voucher.get("tax_allocations") or []
@@ -334,6 +337,11 @@ def _verification_details(voucher, match):
     for expected in expected_purchase:
         key = (_ledger_key(expected["ledger"]), expected["gst_rate"])
         actual = actual_index.get(key)
+        if not actual and expected["gst_rate"] == "0" and (not actual_tax or not expected["rate_available"]):
+            # A valid 0% / exempt purchase: Tally stores no GST rate detail on the ledger entry, so the
+            # read-back reports an EMPTY rate. Accept that only for an expected 0% line when the voucher
+            # carries no GST tax ledger entries at all; ledger name and amount are still verified below.
+            actual = actual_index.get((_ledger_key(expected["ledger"]), ""))
         if not actual:
             missing_purchase.append({"ledger": expected["ledger"], "gst_rate": expected["gst_rate"]})
         elif expected["amount"] and abs(_number(actual.get("amount")) - expected["amount"]) > AMOUNT_TOLERANCE:

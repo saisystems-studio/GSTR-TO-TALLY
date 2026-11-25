@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Step3Verification from '../components/gst-tally/Step3Verification'
 import { step3Ready } from '../utils/step3Verification'
 import DataTransferAnimation from '../components/gst-tally/DataTransferAnimation'
@@ -23,6 +24,7 @@ import {
   getImportBatch,
   getTallyConnection,
   getConnectorStatus,
+  pairConnectorEnrollment,
   getTallyImportJobStatus,
   pauseTallyImportJob,
   prepareTallyMasters,
@@ -39,7 +41,7 @@ import { chooseAnotherFile, duplicateFileNoticeFromError } from '../utils/duplic
 import { finalImportToast } from '../utils/importOutcome'
 import { licenseFailureUi } from '../utils/licenseSecurityUi'
 import { getProcessingStage, getProcessingVisualMode, PROCESSING_READY_COMPLETE_MS } from '../utils/processingAnimation'
-import { buildPrepState, canStartImport, companyDetailsReadiness, confirmMastersReadiness, defaultFileFormat, detectFileFormat, fileFormatExtension, filterMastersRows, isTallyConnectionReady, mastersSummaryFromRows, normalizeCompanyVerificationResult, readyBreakdownText, searchMastersRows, shouldAutoStartImport, tallyConnectionErrorMessage, RETURN_TYPE_FILE_FORMATS } from '../utils/workflowState'
+import { buildPrepState, canStartImport, companyDetailsReadiness, confirmMastersReadiness, defaultFileFormat, detectFileFormat, fileFormatExtension, filterMastersRows, isTallyConnectionReady, mastersSummaryFromRows, normalizeCompanyVerificationResult, readyBreakdownText, searchMastersRows, shouldAutoStartImport, tallyConnectionErrorMessage, FILE_FORMATS, fileFormatAccept } from '../utils/workflowState'
 import '../styles/gst-tally.css'
 
 const returnTypes = [
@@ -79,6 +81,10 @@ const CONNECTION_LOST_ERROR_CODES = new Set([
 // asks the active-job endpoint, which performs the authoritative server-side
 // staleness check (see backend tally/import_job.py) instead of guessing here.
 const JOB_HEARTBEAT_STALL_SECONDS = 60
+const START_REQUEST_TIMEOUT_MS = 45000
+// Confirm & Continue runs Step 4 master preparation; bounded so the button can never spin forever.
+const CONFIRM_REQUEST_TIMEOUT_MS = 180000
+const POLL_FAILURES_BEFORE_LOST = 5
 const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(value || 0))
 const fmtNum = value => Number(value || 0).toLocaleString('en-IN')
 const signedMoney = value => `${Number(value || 0) > 0 ? '+' : Number(value || 0) < 0 ? '-' : ''}${money(Math.abs(Number(value || 0)))}`
@@ -158,6 +164,7 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   const [verifyStage, setVerifyStage] = useState(null)
   const [confirmed, setConfirmed] = useState(false)
   const [confirmDone, setConfirmDone] = useState(false)
+  const [confirmError, setConfirmError] = useState('')
   const [masterResult, setMasterResult] = useState(null)
   const [voucherResult, setVoucherResult] = useState(null)
   const [vouchersValidated, setVouchersValidated] = useState(false)
@@ -165,6 +172,7 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   const [skipDetailRow, setSkipDetailRow] = useState(null)
   const [importResult, setImportResult] = useState(null)
   const [importJobId, setImportJobId] = useState(null)
+  const [importStalled, setImportStalled] = useState('')
   const [importJobStatus, setImportJobStatus] = useState(null)
   // Local-only "in flight" flag for the Pause/Resume click itself -- never
   // the source of truth for whether the import is actually paused (the
@@ -262,8 +270,18 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   }
   const chooseReturnType = next => {
     setReturnType(next)
-    setFileFormat(defaultFileFormat(next))
+    setFileFormat(defaultFileFormat(next))   // JSON by default; any format is valid for any return type
+    setFile(null)
+    setFileError('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
     resetWorkflow()
+  }
+  const chooseFileFormat = next => {
+    if (next === fileFormat) return
+    setFileFormat(next)
+    setFile(null)   // an already-selected file of another format is no longer compatible
+    setFileError('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
   const chooseFile = selected => {
     setDuplicateFileNotice(null)
@@ -276,14 +294,12 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
       return
     }
     const detected = detectFileFormat(selected.name)
-    const expected = defaultFileFormat(returnType)
-    if (detected !== expected) {
+    if (detected !== fileFormat) {
       setFile(null)
-      setFileError(`${returnTypes.find(item => item.id === returnType)?.title} requires ${expected} format (${fileFormatExtension(expected)}).`)
+      setFileError(`"${selected.name}" is a ${detected} file, but ${fileFormat} is selected. Choose a ${fileFormatAccept(fileFormat).replace(',', ' or ')} file or change the File Format.`)
       return
     }
     setFile(selected)
-    setFileFormat(expected)
   }
   // Fetches (or re-fetches) Step 2's table rows straight from the batch --
   // the one path used both right after a fresh upload and to recover after a
@@ -533,35 +549,39 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   // persists to companydetails_tbl; it never computes master rows. Setting
   // verifyStage to 'confirm' first is what makes buildPrepState show
   // "Preparing masters" / Masters Ready as the active step while this runs.
+  const confirmInFlight = useRef(false)
   const prepareMastersForDisplay = async () => {
-    if (!batch?.id) return
+    if (!batch?.id || confirmInFlight.current) return   // one request at a time: ignore double clicks
+    confirmInFlight.current = true
+    setConfirmError('')
     setVerifyStage('confirm')
     setBusy('confirm')
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), CONFIRM_REQUEST_TIMEOUT_MS)
     try {
-      const rawResult = await prepareTallyMasters(batch.id, companyName.trim())
+      const rawResult = await prepareTallyMasters(batch.id, companyName.trim(), { signal: controller.signal })
       const result = normalizeCompanyVerificationResult(rawResult, companyName.trim())
       setMasterResult(result)
       setConfirmed(true)
-      // A brief "Confirmed" acknowledgement before leaving this screen -- the
-      // backend call is already finished at this point, this is purely the
-      // popup's own closing beat (see VerificationCard's Confirm & Continue
-      // button), not an additional request or an invented delay elsewhere.
-      setConfirmDone(true)
-      await wait(500)
       setVerifyStage(null)
-      go('masters')
+      go('masters')   // proceed immediately: no artificial delay after the backend has answered
     } catch (error) {
-      notify(error.message || 'Unable to prepare Tally masters.', 'error')
+      const message = error?.name === 'AbortError'
+        ? `Preparing Tally masters took longer than ${Math.round(CONFIRM_REQUEST_TIMEOUT_MS / 1000)} seconds and was stopped. Check that Tally and the Connector are running, then retry.`
+        : (error?.message || 'Unable to prepare Tally masters.')
+      setConfirmError(message)   // shown inline in the verification dialog with a Retry button
+      notify(message, 'error')
     } finally {
+      window.clearTimeout(timer)
+      confirmInFlight.current = false
       setBusy('')
-      setConfirmDone(false)
     }
   }
   const refreshMastersStatus = async () => {
     if (!batch?.id) return
     setBusy('masters')
     try {
-      const rawResult = await prepareTallyMasters(batch.id, companyName.trim())
+      const rawResult = await prepareTallyMasters(batch.id, companyName.trim(), { force: true })
       const result = normalizeCompanyVerificationResult(rawResult, companyName.trim())
       setMasterResult(result)
       notify('Tally master statuses refreshed.')
@@ -605,15 +625,24 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
     setBusy('tally-import')
     try {
       let response
+      const controller = new AbortController()
+      const startTimer = window.setTimeout(() => controller.abort(), START_REQUEST_TIMEOUT_MS)
       try {
-        response = await startTallyImportJob(batch.id)
+        response = await startTallyImportJob(batch.id, { signal: controller.signal })
       } catch (error) {
         // The start request itself may have failed client-side (timeout,
         // network blip) after the backend already created the job -- check
         // for an active job before assuming the import never started.
         const active = await getActiveTallyImportJob(batch.id).catch(() => null)
-        if (!active || active.status === 'none') throw error
+        if (!active || active.status === 'none') {
+          if (controller.signal.aborted) {
+            throw new Error('The server did not respond to the import request in time. Nothing was sent to Tally. Please retry; vouchers already imported will not be duplicated.')
+          }
+          throw error
+        }
         response = active
+      } finally {
+        window.clearTimeout(startTimer)
       }
       if (response.status === 'already_running') {
         notify('Import already in progress. Tracking current import status.', 'info')
@@ -706,6 +735,7 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
     let cancelled = false
     let timer = null
     const finish = status => {
+      setImportStalled('')
       setBusy('')
       setImportJobId(null)
       setPauseAction('')
@@ -733,16 +763,21 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
       })
       setResultPopupOpen(true)
     }
+    let pollFailures = 0
     const poll = async () => {
       try {
         let current = await getTallyImportJobStatus(importJobId)
+        pollFailures = 0
         const heartbeatAge = current.heartbeat_at ? (Date.now() - new Date(current.heartbeat_at).getTime()) / 1000 : 0
         if (ACTIVE_JOB_STATUSES.includes(current.status) && heartbeatAge > JOB_HEARTBEAT_STALL_SECONDS) {
-          notify('The import is taking longer than expected. We are checking the current Tally import status.', 'info')
           const active = await getActiveTallyImportJob(batch.id).catch(() => null)
           if (active && active.status !== 'none') current = active
         }
         if (cancelled) return
+        const staleAge = current.heartbeat_at ? (Date.now() - new Date(current.heartbeat_at).getTime()) / 1000 : 0
+        setImportStalled(ACTIVE_JOB_STATUSES.includes(current.status) && staleAge > JOB_HEARTBEAT_STALL_SECONDS
+          ? 'No progress has been received from the import worker. It may have stopped (for example after a server restart). Use Retry import; vouchers already in Tally are never sent again.'
+          : '')
         setImportJobStatus(current)
         if (TERMINAL_JOB_STATUSES.includes(current.status)) {
           clearInterval(timer)
@@ -750,7 +785,12 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
         }
       } catch {
         // Transient polling failure -- keep polling rather than flipping to
-        // a false failure; the job keeps running server-side regardless.
+        // a false failure; the job keeps running server-side regardless. But
+        // never spin silently forever: after repeated failures say so.
+        pollFailures += 1
+        if (!cancelled && pollFailures >= POLL_FAILURES_BEFORE_LOST) {
+          setImportStalled('Lost contact with the server while checking import progress. The import may still be running. Progress resumes automatically when the server responds, or use Retry import.')
+        }
       }
     }
     poll()
@@ -846,10 +886,9 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   // Step 6 only -- the other 5 steps keep their existing single-line header.
   const stepSubtitle = !showProfile && activeStep === 'import' ? 'Send validated vouchers to the verified Tally company' : ''
 
-  return <AppShell user={user} activeStep={activeStep} stepNumber={showProfile ? null : stepNumber} stepLabel={showProfile ? 'My Profile' : stepLabel} stepSubtitle={stepSubtitle} batchId={batch?.id} reachableIndex={reachableIndex} onHome={onLogout} onNavigate={go} onLogout={onLogout} onProfile={() => setShowProfile(true)} profileActive={showProfile} canGoBack={showProfile || screen !== 'upload'} onBack={showProfile ? () => setShowProfile(false) : back} subscription={subscription}>
-    <ConnectorStatusBanner status={connectorStatus} />
+  return <AppShell user={user} activeStep={activeStep} stepNumber={showProfile ? null : stepNumber} stepLabel={showProfile ? 'My Profile' : stepLabel} stepSubtitle={stepSubtitle} batchId={batch?.id} reachableIndex={reachableIndex} onHome={onLogout} onNavigate={go} onLogout={onLogout} onProfile={() => setShowProfile(true)} profileActive={showProfile} canGoBack={showProfile || screen !== 'upload'} onBack={showProfile ? () => setShowProfile(false) : back} subscription={subscription} tallyIndicator={<TallyConnectionIndicator status={connectorStatus} />}>
     {showProfile && <ProfileScreen />}
-    {!showProfile && screen === 'upload' && <UploadScreen returnType={returnType} fileFormat={fileFormat} file={file} fileError={fileError} loading={busy === 'import-file'} phase={phase} processingStartedAt={processingStartedAt} processingBackendDone={processingBackendDone} overlayClosing={overlayClosing} processingError={processingError} onDismissProcessingError={() => setProcessingError('')} onReturnType={chooseReturnType} onFile={chooseFile} onImport={startImport} fileInputRef={fileInputRef} />}
+    {!showProfile && screen === 'upload' && <UploadScreen returnType={returnType} fileFormat={fileFormat} file={file} fileError={fileError} loading={busy === 'import-file'} phase={phase} processingStartedAt={processingStartedAt} processingBackendDone={processingBackendDone} overlayClosing={overlayClosing} processingError={processingError} onDismissProcessingError={() => setProcessingError('')} onReturnType={chooseReturnType} onFileFormat={chooseFileFormat} onFile={chooseFile} onImport={startImport} fileInputRef={fileInputRef} />}
     {!showProfile && screen === 'preview' && <PreviewScreen preview={preview} batch={batch} tableLoading={previewLoading} tableProcessingStartedAt={previewProcessingStartedAt} tableError={previewError} onRetryPreview={() => batch?.id && loadBatchPreview(batch.id)} onLoadPage={options => batch?.id && loadBatchPreview(batch.id, options)} loading={busy === 'parties'} phase={phase} onProceed={proceedFromPreview} />}
     {!showProfile && screen === 'parties' && <PartyScreen
       loading={busy === 'parties'}
@@ -862,6 +901,7 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
       licenseResult={licenseResult}
       confirmLoading={busy === 'confirm'}
       confirmDone={confirmDone}
+      confirmError={confirmError}
       onRetry={proceedFromPreview}
       onSelectGstin={selectCompanyGstin}
       onConfirmMasters={prepareMastersForDisplay}
@@ -871,7 +911,7 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
     {!showProfile && screen === 'masters' && <MastersScreen result={masterResult} loading={busy === 'masters'} onRefresh={refreshMastersStatus} onContinue={generateVouchersFromMasters} />}
     {!showProfile && screen === 'vouchers' && <VoucherScreen result={voucherResult} loading={busy === 'vouchers'} validated={vouchersValidated} batchId={batch?.id} reviewRow={reviewRow} onValidate={loadVouchers} onCorrected={correctVoucher} onReview={setReviewRow} onViewSkip={setSkipDetailRow} onContinue={() => go('import', null, { autoStartImport: true, fromVoucherPreview: true })} onRetrySandboxLookup={retrySandboxLookup} sandboxRetryBusy={sandboxRetryBusy} />}
     {skipDetailRow && <SkipReasonModal row={skipDetailRow} onClose={() => setSkipDetailRow(null)} />}
-    {!showProfile && screen === 'import' && <Step6ImportScreen batch={batch} result={importResult} jobStatus={importJobStatus} pauseAction={pauseAction} voucherResult={voucherResult} connectionResult={connectionResult} companyResult={companyResult} licenseResult={licenseResult} masterResult={masterResult} loading={busy === 'tally-import'} autoStartImport={autoStartImport}
+    {!showProfile && screen === 'import' && <Step6ImportScreen batch={batch} result={importResult} jobStatus={importJobStatus} pauseAction={pauseAction} voucherResult={voucherResult} connectionResult={connectionResult} companyResult={companyResult} licenseResult={licenseResult} masterResult={masterResult} loading={busy === 'tally-import'} stalledMessage={importStalled} autoStartImport={autoStartImport}
       onImport={runImport} onPause={pauseImport} onResume={resumeImport} onViewError={setErrorDetail} onBackToVouchers={() => go('vouchers')} onFinish={finishImport}
       resultPopupOpen={resultPopupOpen} onDismissResultPopup={() => setResultPopupOpen(false)} />}
     <Toast toast={toast} onDismiss={() => setToast(null)} />
@@ -892,31 +932,155 @@ export default function GstTallyImport({ user, onLogout, subscription }) {
   </AppShell>
 }
 
-function ConnectorStatusBanner({ status }) {
-  const label = status?.status || 'Connector Required'
-  const ready = label === 'Ready to Import'
-  const connectorDetected = Boolean(status?.connected || status?.status === 'Connecting to Tally...')
-  const [downloadStarted, setDownloadStarted] = useState(false)
-  const downloadUrl = status?.download_url || '/gstr2tally/downloads/GSTR2TallyConnectorSetup.exe'
-  if (!connectorDetected) {
-    return <section className="connector-required-card" role="status" aria-live="polite">
-      <h2>Tally Connection</h2>
-      <strong>Connector Not Detected</strong>
-      <p>{downloadStarted ? 'Open the downloaded setup and click Install. GSTR2TALLY will connect automatically.' : 'Connect GSTR2TALLY with TallyPrime in one simple installation.'}</p>
-      <a className="connector-download-button" href={downloadUrl} download onClick={() => setDownloadStarted(true)}>Connect Tally</a>
-      {downloadStarted && <p className="connector-install-note">Open the downloaded setup and click Install.</p>}
-    </section>
-  }
-  return <div className={`connector-status-banner ${ready ? 'is-ready' : ''}`} role="status">
-    <span>Connector: {status?.connected ? 'Connected' : 'Connecting'}</span>
-    <span>Tally: {status?.tally_connected ? 'Connected' : label === 'Connecting to Tally...' ? 'Connecting...' : 'Not Running'}</span>
-    {status?.company_name && <span>Company: {status.company_name}</span>}
-    {status?.company_gstin && <span>GSTIN: {status.company_gstin}</span>}
-    <strong>Status: {ready ? 'Ready to Import' : label}</strong>
-  </div>
+// Small floating top-right status button that replaces the old always-visible
+// connection card -- it takes no page layout space (fixed positioning) and
+// only opens the real connection UI (ConnectorStatusPanel, logic untouched)
+// in a modal when clicked.
+// Enrollment ids already auto-paired in this page session (survives remounts/StrictMode double effects).
+const PAIR_ATTEMPTED = new Set()
+const CONNECTOR_HEALTH_URL = 'http://127.0.0.1:47831/health'
+
+// Asks the Connector process itself (loopback only) whether it is running and
+// paired, so a running-but-unpaired Connector is never mistaken for a missing one.
+function useConnectorHealth() {
+  const [health, setHealth] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    const probe = async () => {
+      const controller = new AbortController()
+      const timer = window.setTimeout(() => controller.abort(), 1500)
+      try {
+        const response = await fetch(CONNECTOR_HEALTH_URL, { signal: controller.signal, cache: 'no-store' })
+        const data = response.ok ? await response.json() : null
+        if (!cancelled) setHealth(data?.app === 'GSTR2TallyConnector' ? data : null)
+      } catch { if (!cancelled) setHealth(null) } finally { window.clearTimeout(timer) }
+    }
+    probe()
+    const id = window.setInterval(probe, 5000)
+    return () => { cancelled = true; window.clearInterval(id) }
+  }, [])
+  return health
 }
 
-function UploadScreen({ returnType, fileFormat, file, fileError, loading, phase, processingStartedAt, processingBackendDone, overlayClosing, processingError, onDismissProcessingError, onReturnType, onFile, onImport, fileInputRef }) {
+// running | reconnecting | not_paired | stopped | missing
+function connectorState(status, health) {
+  if (status?.connected) return 'running'
+  if (health?.running) return health.paired ? 'reconnecting' : 'not_paired'
+  if (status?.status === 'Connecting to Tally...') return 'stopped'
+  return 'missing'
+}
+
+function TallyConnectionIndicator({ status }) {
+  const [open, setOpen] = useState(false)
+  const health = useConnectorHealth()
+  const state = connectorState(status, health)
+  const [toastMsg, setToastMsg] = useState('')
+  const [pairError, setPairError] = useState('')
+  const showToast = message => { setToastMsg(message); window.setTimeout(() => setToastMsg(''), 4000) }
+  // Connected = Connector responds locally AND pairing is persisted (or already registered).
+  // A paired account with no usable license is a real licensing failure and is shown as an error.
+  const pairingSaved = Boolean(status?.connected || status?.pairing_persisted)
+  const licenseBlocked = Boolean(status && status.license_linked === false && !status.connected)
+  const running = state === 'running' || state === 'reconnecting' || state === 'not_paired'
+  const connected = running && pairingSaved && !licenseBlocked
+  const dotState = connected ? 'is-ready' : state === 'missing' || state === 'stopped' ? 'is-offline' : 'is-connecting'
+  const pairNow = useCallback(async enrollment => {
+    setPairError('')
+    try {
+      await pairConnectorEnrollment({ enrollmentId: enrollment.enrollment_id, proof: enrollment.proof })
+    } catch (error) {
+      setPairError(error?.message || 'Pairing failed. Please try again.')
+    }
+  }, [])
+  // One automatic attempt per enrollment; later retries are manual.
+  useEffect(() => {
+    const enrollment = health?.enrollment
+    if (state === 'not_paired' && enrollment && !PAIR_ATTEMPTED.has(enrollment.enrollment_id)) {
+      PAIR_ATTEMPTED.add(enrollment.enrollment_id)
+      pairNow(enrollment)
+    }
+  }, [state, health, pairNow])
+  // Success: show the tick briefly, toast top-right, close the popup.
+  useEffect(() => {
+    if (!open || !connected) return undefined
+    const timer = window.setTimeout(() => {
+      setOpen(false)
+      showToast('Connector Connected Successfully')
+    }, 900)
+    return () => window.clearTimeout(timer)
+  }, [open, connected])
+  useEffect(() => {
+    if (!open) return undefined
+    const onKey = event => { if (event.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+  const refresh = () => getConnectorStatus().catch(() => {})
+  const handleClick = () => { setOpen(true); refresh() }
+  return <>
+    {toastMsg && <div className="masters-success-toast" role="status" style={{ position: 'fixed', top: 16, right: 16, zIndex: 3000 }}>
+      <span className="masters-success-toast-icon" aria-hidden="true">✓</span>
+      <span className="masters-success-toast-text">{toastMsg}</span>
+    </div>}
+    <button type="button" className="tally-connect-fab" onClick={handleClick} aria-haspopup="dialog">
+      <span className={`tally-connect-dot ${dotState}`} aria-hidden="true" />
+      <span>Connect Tally</span>
+    </button>
+    {open && createPortal(<div className="modal-backdrop" onMouseDown={event => event.target === event.currentTarget && setOpen(false)}>
+      <div className="modal tally-connect-modal" role="dialog" aria-modal="true" aria-label="Tally Connection">
+        <div className="modal-head"><h2>Tally Connection</h2><button type="button" onClick={() => setOpen(false)} aria-label="Close">×</button></div>
+        <ConnectorStatusPanel status={status} state={state} health={health} connected={connected} licenseBlocked={licenseBlocked}
+          pairError={pairError} onPair={() => health?.enrollment && pairNow(health.enrollment)} onRetry={refresh} />
+      </div>
+    </div>, document.body)}
+  </>
+}
+
+function ConnectorStatusPanel({ status, state, health, connected, licenseBlocked, pairError, onPair, onRetry }) {
+  const [downloadStarted, setDownloadStarted] = useState(false)
+  const downloadUrl = status?.download_url || '/gstr2tally/downloads/GSTR2TallyConnectorSetup.exe'
+  const button = (label, onClick) => <button type="button" className="connector-download-button" onClick={onClick}>{label}</button>
+  if (connected) {
+    return <section className="connector-required-card connector-success" role="status" aria-live="polite">
+      <span className="connector-success-tick" aria-hidden="true">✓</span>
+      <strong>Connector Connected Successfully</strong>
+    </section>
+  }
+  if (state === 'missing') {
+    return <section className="connector-required-card" role="status" aria-live="polite">
+      <strong>Connector Not Detected</strong>
+      <p>{downloadStarted ? 'Open the downloaded setup and click Install. This page detects it automatically.' : 'Install the GSTR2Tally Connector to link TallyPrime.'}</p>
+      <a className="connector-download-button" href={downloadUrl} download onClick={() => setDownloadStarted(true)}>Download Connector</a>
+    </section>
+  }
+  if (state === 'stopped') {
+    return <section className="connector-required-card" role="status" aria-live="polite">
+      <strong>Connector Installed – Not Running</strong>
+      <p>Start GSTR2Tally Connector from the Windows Start Menu. This page reconnects automatically.</p>
+      {button('Reconnect', onRetry)}
+    </section>
+  }
+  if (licenseBlocked) {
+    return <section className="connector-required-card" role="alert">
+      <strong>License not linked</strong>
+      <p>The Connector is paired, but no active GSTR2Tally license is linked to this account, so it cannot register. Activate the license for this account, then retry.</p>
+      {button('Retry', onRetry)}
+    </section>
+  }
+  if (pairError) {
+    return <section className="connector-required-card" role="alert">
+      <strong>Pairing failed</strong>
+      <p>{pairError}</p>
+      {health?.enrollment ? button('Retry pairing', onPair) : button('Retry', onRetry)}
+    </section>
+  }
+  return <section className="connector-required-card" role="status" aria-live="polite">
+    <strong>Checking Connector…</strong>
+    <p>Pairing with your account.</p>
+  </section>
+}
+
+function UploadScreen({ returnType, fileFormat, file, fileError, loading, phase, processingStartedAt, processingBackendDone, overlayClosing, processingError, onDismissProcessingError, onReturnType, onFileFormat, onFile, onImport, fileInputRef }) {
   return <section className="screen upload-screen">
     <header className="screen-title horizontal">
       <div><h1>Import GST Return</h1><p>Select return type and upload your GST return file.</p></div>
@@ -938,7 +1102,11 @@ function UploadScreen({ returnType, fileFormat, file, fileError, loading, phase,
               <strong>{item.title}</strong><span>{item.text}</span>
               {returnType === item.id && <span className="return-check" aria-hidden="true">✓</span>}
             </button>)}</div>
-            <fieldset className="format-field" disabled><legend>File Format</legend><div className="format-verified"><span className="format-verified-check" aria-hidden="true">✓</span><strong>{fileFormat}</strong> <span>({fileFormatExtension(fileFormat)})</span></div></fieldset>
+            <h2 className="section-label">File Format</h2>
+            <div className="format-row" role="radiogroup" aria-label="File Format">{Object.values(FILE_FORMATS).map(item => <button key={item.label} type="button" role="radio" aria-checked={fileFormat === item.label} className={`return-option format-option ${fileFormat === item.label ? 'active' : ''}`} onClick={() => onFileFormat(item.label)} disabled={overlayOpen}>
+              <strong>{item.label}</strong>
+              {fileFormat === item.label && <span className="return-check" aria-hidden="true">✓</span>}
+            </button>)}</div>
             <FileDrop file={file} fileFormat={fileFormat} returnType={returnType} disabled={overlayOpen} error={fileError} onFile={onFile} inputRef={fileInputRef} />
           </div>
           {overlayOpen && <ProcessingOverlay startedAt={processingStartedAt} backendDone={processingBackendDone} closing={overlayClosing} error={processingError} onDismissError={onDismissProcessingError} />}
@@ -998,7 +1166,7 @@ function ProcessingOverlay({ startedAt, backendDone, closing, error, onDismissEr
 function FileDrop({ file, fileFormat, returnType, disabled, error, onFile, inputRef }) {
   const [dragging, setDragging] = useState(false)
   return <label className={`file-drop ${dragging ? 'dragging' : ''}`}>
-    <input ref={inputRef} type="file" accept={RETURN_TYPE_FILE_FORMATS[returnType]?.extension === '.xlsx' ? '.xlsx,.xls' : RETURN_TYPE_FILE_FORMATS[returnType]?.extension} disabled={disabled} onChange={event => onFile(event.target.files[0] || null)} onDragEnter={() => setDragging(true)} />
+    <input ref={inputRef} type="file" accept={fileFormatAccept(fileFormat)} disabled={disabled} onChange={event => onFile(event.target.files[0] || null)} onDragEnter={() => setDragging(true)} />
     <span className="drop-symbol" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M7 18a4.5 4.5 0 0 1-.5-8.97A5.5 5.5 0 0 1 17.24 8.02 4 4 0 0 1 17 16H7z" /><path d="M12 12v6M9.5 14.5 12 12l2.5 2.5" /></svg>
     </span>
@@ -1006,7 +1174,7 @@ function FileDrop({ file, fileFormat, returnType, disabled, error, onFile, input
       <strong>Drag and drop your file here</strong>
       <span className="file-drop-or">or</span>
       <span className="choose-file-btn">Choose File</span>
-      <small>Required: {fileFormat} ({fileFormatExtension(fileFormat)})</small>
+      <small>Accepted: {fileFormat} ({fileFormatAccept(fileFormat).replaceAll(',', ', ')})</small>
     </>}
     {error && <em role="alert">{error}</em>}
   </label>
@@ -1129,7 +1297,7 @@ const ENGINE_NODES = [
 ]
 const ORBIT_SLOT_ID = { parties: 'source', fetch: 'party', connection: 'tally', masters: 'masters', license: 'license', company: 'verify' }
 
-function PartyScreen({ loading, prepState, parties, error, connectionResult, companyInfo, companyResult, licenseResult, confirmLoading, confirmDone, onRetry, onSelectGstin, onConfirmMasters, onRetrySandboxLookup, sandboxRetryBusy }) {
+function PartyScreen({ loading, prepState, parties, error, connectionResult, companyInfo, companyResult, licenseResult, confirmLoading, confirmDone, confirmError, onRetry, onSelectGstin, onConfirmMasters, onRetrySandboxLookup, sandboxRetryBusy }) {
   // Sandbox's own account-level quota block (see backend sandbox.py's
   // PROVIDER_BLOCK_CACHE_KEY) applies to every party in this batch at once --
   // reported explicitly as one batch-level field (views.py's
@@ -1226,7 +1394,7 @@ function PartyScreen({ loading, prepState, parties, error, connectionResult, com
           </div>
           <p className="engine-live-sub">{verificationComplete ? 'Tally connection, company and license are verified.' : 'Your data is being processed securely in the background.'}</p>
           <TallyEngineOrbit bare status={verificationComplete ? 'complete' : 'live'} nodes={orbitNodes} />
-          <VerificationCard prepState={prepState} connectionResult={connectionResult} companyInfo={companyInfo} companyResult={companyResult} licenseResult={licenseResult} confirmLoading={confirmLoading} confirmDone={confirmDone} onSelectGstin={onSelectGstin} onConfirmMasters={onConfirmMasters} onRetryLicense={onRetry} />
+          <VerificationCard prepState={prepState} connectionResult={connectionResult} companyInfo={companyInfo} companyResult={companyResult} licenseResult={licenseResult} confirmLoading={confirmLoading} confirmDone={confirmDone} confirmError={confirmError} onSelectGstin={onSelectGstin} onConfirmMasters={onConfirmMasters} onRetryLicense={onRetry} />
         </div>
         <CurrentOperationCard entry={activeEntry} status={operationStatus} />
       </div>
@@ -1703,7 +1871,7 @@ function canImportToTally({ voucherResult, masterResult, licenseResult }) {
 // status here is read from real props (voucherResult/connectionResult/
 // companyResult/masterResult/licenseResult/result); none of the underlying
 // eligibility, master, connection, or import logic is touched.
-function Step6ImportScreen({ batch, result, jobStatus, pauseAction, voucherResult, loading, onImport, onPause, onResume, onViewError, onBackToVouchers, onFinish }) {
+function Step6ImportScreen({ batch, result, jobStatus, pauseAction, voucherResult, loading, stalledMessage, onImport, onPause, onResume, onViewError, onBackToVouchers, onFinish }) {
   const [detailStatus, setDetailStatus] = useState('')
   // A completed run with rejected vouchers should immediately expose the
   // inline explanation table, matching the normal operator workflow. Users
@@ -1719,6 +1887,9 @@ function Step6ImportScreen({ batch, result, jobStatus, pauseAction, voucherResul
     else if (Number(summary.already_imported || 0) > 0) setDetailStatus('already_imported')
     else if (Number(summary.remaining || 0) > 0) setDetailStatus('remaining')
   }, [result])
+  // Hooks must run on every render, before the loading early-return below (Rules of Hooks).
+  const active = ['PENDING', 'RUNNING', 'VERIFYING', 'PAUSED'].includes(jobStatus?.status)
+  const elapsed = useElapsedSeconds(jobStatus?.started_at, active)
   const dataReady = Boolean(batch?.id && (voucherResult || jobStatus || result))
   if (!dataReady) {
     return <section className="screen step6-screen step6-loading-screen">
@@ -1730,12 +1901,12 @@ function Step6ImportScreen({ batch, result, jobStatus, pauseAction, voucherResul
   const summary = result?.summary || voucherResult?.summary || {}
   const total = Number(summary.total ?? result?.total_parsed_invoices ?? jobStatus?.total ?? 0)
   const imported = Number(result?.summary?.imported ?? jobStatus?.imported ?? 0)
-  const alreadyImported = Number(result?.summary?.already_imported ?? 0)
+  const alreadyImported = Number(result?.summary?.already_imported ?? jobStatus?.already_imported ?? 0)
   // These are all terminal, non-imported outcomes. Keep them together so
   // the four cards always reconcile with the real source-record total.
   const failed = Number(result?.summary?.failed ?? jobStatus?.failed ?? 0)
   const skipped = Number(result?.summary?.skipped ?? jobStatus?.skipped ?? 0)
-    + Number(result?.summary?.validation_failed ?? result?.summary?.invalid ?? 0)
+    + Number(result?.summary?.validation_failed ?? 0) + Number(result?.summary?.invalid ?? 0)
   const unresolved = Number(result?.summary?.unknown ?? 0)
     + Number(result?.summary?.not_attempted ?? 0)
     + Number(result?.summary?.waiting_for_tally_period ?? 0)
@@ -1744,10 +1915,13 @@ function Step6ImportScreen({ batch, result, jobStatus, pauseAction, voucherResul
   const processed = result ? Math.min(total, imported + alreadyImported + notImported + pending) : Math.min(total, Number(jobStatus?.processed || 0))
   const remaining = Math.max(0, total - processed)
   const percent = total ? Math.min(100, (processed / total) * 100) : 0
-  const active = ['PENDING', 'RUNNING', 'VERIFYING', 'PAUSED'].includes(jobStatus?.status)
   const completedWithErrors = Boolean(result && (notImported > 0 || pending > 0))
-  const title = !result ? 'Importing to Tally' : completedWithErrors ? 'Import Completed with Errors' : 'Import Completed'
-  const elapsed = useElapsedSeconds(jobStatus?.started_at, active)
+  // Nothing was confirmed, rejected or pending: this is never a success. (total = 0 included; percent above is already 0-safe.)
+  const noRecords = total === 0 || Boolean(result && imported + alreadyImported + notImported + pending === 0)
+  const title = noRecords ? 'No Valid Invoice Records' : result ? (completedWithErrors ? 'Import Completed with Errors' : 'Import Completed Successfully')
+    : stalledMessage ? 'Import Stalled'
+    : jobStatus?.status === 'PAUSED' ? 'Import Paused'
+    : !jobStatus ? (loading ? 'Starting Import…' : 'Import Not Started') : 'Importing to Tally'
   const batchSize = DISPLAY_BATCH_SIZE
   const batchCount = total ? Math.max(1, Math.ceil(total / batchSize)) : 0
   const currentBatch = total ? Math.min(batchCount, Math.max(1, Math.ceil(Math.max(processed, 1) / batchSize))) : 0
@@ -1804,9 +1978,14 @@ function Step6ImportScreen({ batch, result, jobStatus, pauseAction, voucherResul
         </aside>
         <main className="step6-center-card">
           <h2>{title}</h2>
-          {!result && <p>Please wait while vouchers are being imported...</p>}
-          {result && <p>{completedWithErrors ? 'Some vouchers require attention.' : 'All vouchers were acknowledged by Tally.'}</p>}
-          <ImportTransfer3D headline="" subline="" status={result ? (completedWithErrors ? 'PARTIAL' : 'COMPLETED') : 'ACTIVE'} />
+          {!result && !stalledMessage && <p>{jobStatus ? 'Please wait while vouchers are being imported...' : loading ? 'Waiting for the server to start the import…' : 'No import is running for this batch and nothing has been sent to Tally.'}</p>}
+          {noRecords && <p role="alert">No valid invoice records available for import. {batch?.upload_status_message || 'The file was read but contained no invoices that can be sent to Tally (unsupported layout, all rows filtered, or the return genuinely has no invoices).'} Go back and check the upload summary.</p>}
+          {!result && stalledMessage && <div className="import-stalled-banner" role="alert" style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 8, padding: '10px 12px', margin: '8px 0', fontSize: 14 }}>
+            <p style={{ margin: '0 0 8px' }}>{stalledMessage}</p>
+            <button type="button" className="step6-secondary" onClick={onImport}>Retry import</button>
+          </div>}
+          {result && !noRecords && <p>{completedWithErrors ? 'Some vouchers require attention.' : 'All vouchers were acknowledged by Tally.'}</p>}
+          <ImportTransfer3D headline="" subline="" status={result ? (completedWithErrors || noRecords ? 'PARTIAL' : 'COMPLETED') : 'ACTIVE'} />
           <div className="step6-progress-copy"><strong>{fmtNum(processed)} of {fmtNum(total)} processed</strong><strong>{percent.toFixed(0)}%</strong></div>
           <div className="step6-progress-bar"><span style={{ width: `${percent}%` }} /></div>
           <p className="step6-progress-meta">Batch {currentBatch} of {batchCount || 1} <span>•</span> Elapsed time: {formatDuration(elapsed)}</p>
@@ -1816,6 +1995,8 @@ function Step6ImportScreen({ batch, result, jobStatus, pauseAction, voucherResul
           <button type="button" className={`step6-status-card already${detailStatus === 'already_imported' ? ' is-selected' : ''}`} onClick={() => toggleDetails('already_imported')}><span>+</span><small>ALREADY IMPORTED</small><strong>{fmtNum(alreadyImported)}</strong></button>
           <button type="button" className={`step6-status-card failed${detailStatus === 'not_imported' ? ' is-selected' : ''}`} onClick={() => toggleDetails('not_imported')}><span>!</span><small>NOT IMPORTED</small><strong>{fmtNum(notImported)}</strong></button>
           <button type="button" className={`step6-status-card remaining${detailStatus === 'remaining' ? ' is-selected' : ''}`} onClick={() => toggleDetails('remaining')} aria-label="View remaining vouchers"><span>□</span><small>REMAINING</small><strong>{fmtNum(remaining)}</strong></button>
+          {Number(result?.summary?.not_attempted || 0) > 0 && <p className="step6-pending-note" role="status"><strong>{fmtNum(result.summary.not_attempted)}</strong> blocked before reaching Tally — not Tally import failures, and nothing was sent. {(result.results || []).find(row => row.status === 'Not Attempted')?.reason || 'Invoice dates are outside the target company books or period.'} Dates, financial years and company settings are never changed automatically.</p>}
+          {pending > 0 && <p className="step6-pending-note" role="status"><strong>{fmtNum(pending)}</strong> verification pending: Tally accepted the write but the read-back could not be confirmed. They are not counted as imported or failed, and are never resent automatically. Verify them in Tally before any retry.</p>}
         </aside>
       </div>
       {detailStatus && <Step6StatusPanel status={detailStatus} count={detailCount(detailStatus)} rows={detailRows} reasonFor={reasonFor} onClose={() => setDetailStatus('')} />}
@@ -1823,8 +2004,9 @@ function Step6ImportScreen({ batch, result, jobStatus, pauseAction, voucherResul
         <nav className="step6-actions">
           <button type="button" className="step6-secondary" onClick={onBackToVouchers}>Back to Voucher Preview</button>
           <button type="button" className="step6-secondary" onClick={() => downloadImportReport(jobStatus, result)}>Download Report</button>
+          {!result && !stalledMessage && <button type="button" className="step6-primary step6-start" onClick={onImport} disabled={noRecords || loading || Boolean(jobStatus)}>Start Import</button>}
           {retryableNotImported && <button type="button" className="step6-secondary" onClick={onImport} disabled={loading || active}>Retry Import</button>}
-          {result && <button type="button" className="step6-primary" onClick={onFinish}>Finish</button>}
+          {result && <button type="button" className="step6-primary" disabled={noRecords} onClick={onFinish}>Finish</button>}
         </nav>
       </footer>
     </div>

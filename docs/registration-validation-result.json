@@ -1,0 +1,41 @@
+{
+  "test_serial": "925793256",
+  "simulated_detection": true,
+  "database": "E:\\gstr\\docs\\nexus-validation-d945261cb08941029a1550086b344728.sqlite3",
+  "registered_email": "sai***@gmail.com",
+  "smtp_backend": "django.core.mail.backends.smtp.EmailBackend",
+  "register_api": {
+    "status": 201,
+    "user_id": "925793256",
+    "welcome_email": "submitted"
+  },
+  "duplicate_api": {
+    "status": 409,
+    "code": "account_exists"
+  },
+  "login_api": {
+    "status": 403,
+    "code": "password_change_required"
+  },
+  "customer_count": 1,
+  "user_id_matches_serial": true,
+  "saved_email_matches_input": true,
+  "actual_recipient": "sai***@gmail.com",
+  "smtp_rcpt": [
+    {
+      "recipient": "sai***@gmail.com",
+      "status": 250
+    }
+  ],
+  "email_submission": [
+    {
+      "kind": "tally_welcome",
+      "status": "accepted",
+      "attempts": 1
+    }
+  ],
+  "welcome_messages": 1,
+  "activation_key_in_registration_email": false,
+  "inbox_delivery": "USER_CONFIRMED_RECEIVED_RECIPIENT_AND_CONTENTS_MATCH",
+  "existing_customer_databases": "NOT_CONNECTED"
+}

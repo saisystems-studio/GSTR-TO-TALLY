@@ -5,7 +5,7 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from copy import deepcopy
-from datetime import date
+from datetime import date, datetime
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -130,7 +130,9 @@ def safe_decode(value, default=""):
 
 
 def import_outcome(counts):
-    imported = counts.get("imported", 0) + counts.get("already_imported", 0)
+    new_imported = counts.get("imported", 0)          # confirmed newly created in Tally during THIS attempt
+    already_imported = counts.get("already_imported", 0)  # verified to exist beforehand; never re-sent
+    imported = new_imported + already_imported            # "accounted for" -- used only for status/remaining below
     # Tally already accepted these writes (CREATED/ALTERED>0) -- the query-back
     # just hasn't confirmed them yet. Never folded into `failed`: a caller that
     # only reads summary.failed must never see a nonzero count for a voucher
@@ -191,7 +193,8 @@ def import_outcome(counts):
     return {
         "total": counts.get("total", 0),
         "total_eligible": eligible if eligible is not None else counts.get("total", 0),
-        "imported": imported,
+        "imported": new_imported,
+        "already_imported": already_imported,
         "failed": failed,
         "validation_failed": validation_failed,
         "skipped": skipped,
@@ -294,7 +297,7 @@ def _step6_outcome(counts):
     message = (
         ". ".join(part[0].upper() + part[1:] for part in parts) + "."
         if parts
-        else "No vouchers were processed."
+        else "No valid invoice records available for import."
     )
     if all_eligible_confirmed:
         if imported == 0 and already:
@@ -1496,9 +1499,11 @@ def _source_period(vouchers):
 
 def _period_payload(vouchers, period):
     source = _source_period(vouchers)
-    start = period.get("books_from") or period.get("financial_year_from")
+    # The live Alt+F2 period (if Tally reported one) defines the open financial year, not the books-beginning date.
+    start = period.get("period_from") or period.get("books_from") or period.get("financial_year_from")
     end = period.get("ending_at")
-    if start and not end:
+    # Only a live-detected start may imply its financial-year end; a books-beginning date never does.
+    if start and not end and period.get("period_from"):
         end = financial_year_details(start)["end"]
     tally_fy = financial_year_details(start)
     return {
@@ -3175,6 +3180,52 @@ def _voucher_financial_year_label(voucher):
     return details["label"] if details else None
 
 
+def _fmt_date(value):
+    return f"{value:%d-%m-%Y}" if value else ""
+
+
+def _invoice_date_position(invoice_date, books_from, period_from, period_to):
+    """Where an invoice date sits relative to the company's LIVE Tally dates.
+
+    Returns None when it is inside, else (code, concise message). The three dates come from Tally at
+    import time; nothing is hard-coded, and "before" is told apart from "after"."""
+    from .odbc import _parse_period_date
+    day = _parse_period_date(str(invoice_date or "")[:10])
+    books_from, period_from, period_to = (_parse_period_date(v) for v in (books_from, period_from, period_to))
+    if not day:
+        return None
+    if books_from and day < books_from:
+        return ("BEFORE_BOOKS_START",
+                f"Invoice date {_fmt_date(day)} is before the company's books beginning date ({_fmt_date(books_from)}). "
+                "Alter Books Beginning From in Tally, or select the correct company.")
+    if period_from and day < period_from:
+        return ("BEFORE_PERIOD_START",
+                f"Invoice date {_fmt_date(day)} is before Tally's open period start ({_fmt_date(period_from)}). "
+                "Press Alt+F2 in Tally and set a period that includes it.")
+    if period_to and day > period_to:
+        return ("AFTER_PERIOD_END",
+                f"Invoice date {_fmt_date(day)} is after Tally's open period end ({_fmt_date(period_to)}). "
+                "Press Alt+F2 in Tally and set a period that includes it.")
+    return None
+
+
+def _file_period_summary(vouchers, books_from, period_from, period_to, source_min, source_max):
+    """One concise file-level reason: actual file range, actual Tally period, and how many fall on each side."""
+    counts = {}
+    for v in vouchers:
+        hit = _invoice_date_position(v.get("invoice_date"), books_from, period_from, period_to)
+        if hit:
+            counts[hit[0]] = counts.get(hit[0], 0) + 1
+    names = {"BEFORE_BOOKS_START": "before the books beginning date",
+             "BEFORE_PERIOD_START": "before the open period start",
+             "AFTER_PERIOD_END": "after the open period end"}
+    detail = "; ".join(f"{n} {names[c]}" for c, n in counts.items())
+    tally = f"{_fmt_date(period_from) or _fmt_date(books_from) or '?'} to {_fmt_date(period_to) or 'open-ended'}"
+    return (f"Invoice dates {_fmt_date(source_min)} to {_fmt_date(source_max)} are outside Tally's open period "
+            f"{tally} ({detail}). Change the period or books date in Tally to cover the file, then retry. "
+            "No voucher was sent.")
+
+
 def _financial_year_mismatch_result(voucher, invoice_fy, tally_fy):
     return {
         "invoice_no": voucher["invoice_number"],
@@ -3184,11 +3235,79 @@ def _financial_year_mismatch_result(voucher, invoice_fy, tally_fy):
         "voucher_type": voucher.get("voucher_type", "Sales"),
         "status": "Skipped",
         "voucher_identifier": "",
-        "reason": f"Invoice belongs to FY {invoice_fy}, while current Tally financial year is {tally_fy}.",
+        "reason": f"Invoice belongs to FY {invoice_fy}, which is {'earlier' if str(invoice_fy) < str(tally_fy) else 'later'} than the open Tally financial year {tally_fy}. Open that year in Tally to import it.",
         "reason_code": "FINANCIAL_YEAR_MISMATCH",
         "invoice_financial_year": invoice_fy,
         "tally_financial_year": tally_fy,
     }
+
+
+
+def _persist_confirmed_batch(client, batch, batch_items, response, target_name, key_for, invoices_by_id, out_rows, note=""):
+    """Records one Tally batch write. A voucher is Imported ONLY when Tally's batch
+    response was clean AND a read-back query of the target company finds that exact
+    voucher (number/reference + type + party). Anything else is stored as
+    "Write Accepted - Verification Pending" with the exact reason, and is never
+    resent automatically. Returns (confirmed_count, pending_count)."""
+    from datetime import date as _date
+    matches, read_error = {}, ""
+    dates = []
+    for item in batch_items:
+        try:
+            dates.append(_date.fromisoformat(str(item.get("invoice_date"))[:10]))
+        except (TypeError, ValueError):
+            pass
+    if not dates:
+        read_error = "Read-back skipped: the voucher dates could not be determined."
+    else:
+        try:
+            check = query_vouchers(client, target_name, min(dates), max(dates), operation="batch_read_back")
+            if check.get("query_valid"):
+                tally_vouchers = check.get("vouchers") or []
+                matches = {item["invoice_id"]: find_voucher(tally_vouchers, item) for item in batch_items}
+            else:
+                read_error = check.get("reason") or "The read-back query of the target company was not valid."
+        except TallyConnectionError as exc:
+            read_error = f"Read-back query failed: {exc}"
+    imported_at = timezone.now()
+    confirmed = pending = 0
+    for voucher in batch_items:
+        key = key_for(voucher)
+        match = matches.get(voucher["invoice_id"])
+        row = {"invoice_no": voucher["invoice_number"], "date": voucher["invoice_date"],
+               "party": voucher["party"]["name"], "gstin": voucher["party"]["gstin"],
+               "voucher_type": voucher.get("voucher_type", "Sales")}
+        if match:
+            identifier = match.get("master_id") or response.last_vch_id
+            TallyVoucherMapping.objects.update_or_create(
+                idempotency_key=key,
+                defaults={"batch": batch, "invoice_id": voucher["invoice_id"],
+                          "source_invoice_number": voucher["invoice_number"],
+                          "party_gstin": voucher["party"]["gstin"], "tally_company": target_name,
+                          "tally_voucher_identifier": identifier,
+                          "import_status": "Imported", "error_message": "", "imported_at": imported_at})
+            _update_registry_from_result(batch, voucher, "Imported", "Tally accepted the write and the voucher was confirmed by read-back.",
+                                         voucher_identifier=identifier, invoices_by_id=invoices_by_id)
+            out_rows.append({**row, "status": "Imported",
+                             "reason": ("Confirmed in Tally by read-back. " + note).strip(), "voucher_identifier": identifier})
+            confirmed += 1
+        else:
+            reason = ((note + " ") if note else "") + (read_error or f"This voucher was not found in company '{target_name}' on read-back.")
+            TallyVoucherMapping.objects.update_or_create(
+                idempotency_key=key,
+                defaults={"batch": batch, "invoice_id": voucher["invoice_id"],
+                          "source_invoice_number": voucher["invoice_number"],
+                          "party_gstin": voucher["party"]["gstin"], "tally_company": target_name,
+                          "tally_voucher_identifier": response.last_vch_id,
+                          "import_status": WRITE_ACCEPTED_PENDING_DB_STATUS, "error_message": reason, "imported_at": None})
+            _update_registry_from_result(batch, voucher, WRITE_ACCEPTED_PENDING_STATUS, reason,
+                                         error_code="TALLY_WRITE_ACCEPTED_VERIFICATION_PENDING",
+                                         voucher_identifier=response.last_vch_id, invoices_by_id=invoices_by_id)
+            out_rows.append({**row, "status": WRITE_ACCEPTED_PENDING_STATUS, "reason": reason,
+                             "voucher_identifier": response.last_vch_id or ""})
+            pending += 1
+    return confirmed, pending
+
 
 
 def import_batch(batch, client=None, progress_callback=None, should_pause_callback=None):
@@ -3338,10 +3457,9 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
                 master["company_books_from"] = books_from
     source_min = period_info.get("source_min_invoice_date")
     if books_from and source_min and source_min < books_from:
-        reason = (
-            f"Tally company books begin on {books_from:%d-%m-%Y}; invoice date {source_min:%d-%m-%Y} is out of range. "
-            "Alter the company Books Beginning From date in Tally before retrying."
-        )
+        reason = _file_period_summary(vouchers, books_from, period.get("period_from"), period.get("ending_at"),
+                                      source_min, period_info.get("source_max_invoice_date"))
+        _own_reason = lambda v: (_invoice_date_position(v.get("invoice_date"), books_from, None, None) or ("", reason))[1]
         ordered = sorted(
             vouchers,
             key=lambda v: (v.get("invoice_date", ""), v.get("invoice_number", "")),
@@ -3355,7 +3473,7 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
                 "voucher_type": v.get("voucher_type", "Sales"),
                 "status": "Not Attempted" if _voucher_ready(v) else v["status"],
                 "voucher_identifier": "",
-                "reason": reason if _voucher_ready(v) else v["reason"],
+                "reason": _own_reason(v) if _voucher_ready(v) else v["reason"],
             }
             for v in ordered
         ] + fy_mismatch_results
@@ -3408,11 +3526,19 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
     # Tally's own generic "Voucher date is missing" message instead of anything
     # naming the period. Catch it here with one actionable reason up front,
     # rather than letting Tally reject every out-of-range voucher individually.
-    if ending_at and source_max and source_max > ending_at:
-        reason = (
-            f"Tally's current period ends on {ending_at:%d-%m-%Y}; invoice date {source_max:%d-%m-%Y} is out of range. "
-            "In Tally, press Alt+F2 (Change Period) and extend the period to cover the invoice dates before retrying."
-        )
+    source_min = period_info.get("source_min_invoice_date")
+    tally_start = period.get("period_from") or period.get("books_from") or period.get("financial_year_from")
+    outside_period = bool(
+        (ending_at and source_max and source_max > ending_at)
+        or (tally_start and source_min and source_min < tally_start)
+    )
+    if outside_period:
+        reason = _file_period_summary(vouchers, None, tally_start, ending_at, source_min, source_max)
+
+        def _own_reason(v):
+            # Each voucher is reported with ITS OWN date and which side of the period it falls on.
+            hit = _invoice_date_position(v.get("invoice_date"), None, tally_start, ending_at)
+            return hit[1] if hit else "Not attempted: other invoices in this file are outside Tally's open period."
         ordered = sorted(
             vouchers,
             key=lambda v: (v.get("invoice_date", ""), v.get("invoice_number", "")),
@@ -3426,7 +3552,7 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
                 "voucher_type": v.get("voucher_type", "Sales"),
                 "status": "Not Attempted" if _voucher_ready(v) else v["status"],
                 "voucher_identifier": "",
-                "reason": reason if _voucher_ready(v) else v["reason"],
+                "reason": _own_reason(v) if _voucher_ready(v) else v["reason"],
             }
             for v in ordered
         ] + fy_mismatch_results
@@ -4373,26 +4499,20 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
                 # Tally accepted. Stop here and leave this chunk plus all
                 # remaining rows unresolved; the normal reconciliation/retry
                 # path will query Tally before any future write.
-                ambiguous_chunk = (chunk_number, batch_items, response)
+                _persist_confirmed_batch(
+                    client, batch, batch_items, response, target_name,
+                    lambda v: _key(company["gstin"], v, batch.company_scope_id or scope_id),
+                    invoices_by_id, batch_results,
+                    note=(f"Tally's batch response was not a clean count (created={response.created} altered={response.altered} "
+                          f"errors={response.errors} ignored={response.ignored} exceptions={response.exceptions}); "
+                          "each voucher was resolved by read-back instead."))
+                ambiguous_chunk = (chunk_number, [], response)
                 break
             persist_started = time.perf_counter()
-            imported_at = timezone.now()
-            for voucher in batch_items:
-                key = _key(company["gstin"], voucher, batch.company_scope_id or scope_id)
-                TallyVoucherMapping.objects.update_or_create(
-                    idempotency_key=key,
-                    defaults={"batch": batch, "invoice_id": voucher["invoice_id"],
-                              "source_invoice_number": voucher["invoice_number"],
-                              "party_gstin": voucher["party"]["gstin"], "tally_company": target_name,
-                              "tally_voucher_identifier": response.last_vch_id,
-                              "import_status": "Imported", "error_message": "", "imported_at": imported_at},
-                )
-                _update_registry_from_result(batch, voucher, "Imported", "Tally accepted the batch write.",
-                                             voucher_identifier=response.last_vch_id, invoices_by_id=invoices_by_id)
-                batch_results.append({"invoice_no": voucher["invoice_number"], "date": voucher["invoice_date"],
-                                      "party": voucher["party"]["name"], "gstin": voucher["party"]["gstin"],
-                                      "voucher_type": voucher.get("voucher_type", "Sales"), "status": "Imported",
-                                      "reason": "Tally accepted the batch write.", "voucher_identifier": response.last_vch_id})
+            _persist_confirmed_batch(
+                client, batch, batch_items, response, target_name,
+                lambda v: _key(company["gstin"], v, batch.company_scope_id or scope_id),
+                invoices_by_id, batch_results)
             persistence_elapsed_ms += (time.perf_counter() - persist_started) * 1000
             if progress_callback:
                 progress_callback(len(batch_results), len(clean_batch_candidates), batch_results, "")
@@ -4415,16 +4535,21 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
                     "summary": counts, "batch_count": batch_count, "tally_post_requests": batch_count,
                     "tally_verification_requests": 0, "message": "Import paused between Tally batches."}
         if ambiguous_chunk is None:
+            confirmed_total = sum(1 for r in batch_results if r["status"] == "Imported")
+            pending_total = sum(1 for r in batch_results if r["status"] == WRITE_ACCEPTED_PENDING_STATUS)
             counts = {"total": len(vouchers), "eligible": len(clean_batch_candidates), "attempted": len(clean_batch_candidates),
-                      "imported": len(clean_batch_candidates), "already_imported": 0, "failed": 0, "skipped": 0,
+                      "imported": confirmed_total, "already_imported": 0, "failed": 0, "skipped": 0,
+                      "verification_pending": pending_total,
                       "total_eligible": len(clean_batch_candidates), "remaining": 0}
             if batch.company_import_summary_id:
                 update_company_import_summary(batch.company_import_summary)
             return {"batch_id": batch.id, "file_type": batch.file_type, **import_outcome(counts),
-                    "import_status": "Import Successful", "paused": False,
+                    "import_status": "Import Successful" if not pending_total else "Partial Import", "paused": False,
                     "processed_before_pause": len(clean_batch_candidates), "results": batch_results,
                     "summary": counts, "batch_count": batch_count, "tally_post_requests": batch_count,
-                    "tally_verification_requests": 0, "message": "Tally accepted the voucher batches."}
+                    "tally_verification_requests": batch_count,
+                    "message": ("Tally accepted and confirmed the voucher batches." if not pending_total else
+                                f"{pending_total} voucher(s) were accepted by Tally but could not be confirmed by read-back.")}
         # Keep the response complete and safe after an ambiguous aggregate
         # acknowledgement. No unresolved voucher is resent in this run.
         _, ambiguous_items, _ = ambiguous_chunk
@@ -4441,7 +4566,7 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
                                     "voucher_identifier": ""})
         batch_results.extend(unresolved_rows)
         counts = {"total": len(vouchers), "eligible": len(clean_batch_candidates), "attempted": len(clean_batch_candidates),
-                  "imported": len(batch_results) - len(unresolved_rows), "already_imported": 0,
+                  "imported": sum(1 for r in batch_results if r["status"] == "Imported"), "verification_pending": sum(1 for r in batch_results if r["status"] == WRITE_ACCEPTED_PENDING_STATUS), "already_imported": 0,
                   "failed": 0, "unknown": len(unresolved_rows), "skipped": 0,
                   "total_eligible": len(clean_batch_candidates), "remaining": 0}
         if batch.company_import_summary_id:
@@ -4451,6 +4576,94 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
                 "processed_before_pause": len(batch_results), "results": batch_results,
                 "summary": counts, "batch_count": batch_count, "tally_post_requests": batch_count,
                 "tally_verification_requests": 0, "message": "Tally returned an ambiguous batch response; verify before retrying."}
+    # Hybrid fast path. The all-or-nothing batch write above is disabled by a
+    # single ineligible/duplicate voucher or any prior partial run, which pushed
+    # the whole batch onto the slow one-write-plus-one-query-back-per-voucher
+    # loop. Here every voucher that has passed the SAME checks that loop applies
+    # (ready, in period, masters available, balanced, rate matches, no existing
+    # mapping, not already in Tally) is written in bounded batch envelopes, and
+    # only the remainder takes the per-voucher path. A voucher is recorded
+    # Imported only when Tally's batch response confirms every write
+    # (batch_response_is_complete); an ambiguous response is never resent.
+    prepass_ids = set()
+    paused_in_prepass = False
+    if (clean_batch_candidates and not clean_batch_possible and hasattr(client, "import_data_batch")
+            and not failed_master_names and not unknown_masters):
+        prepass_items = []
+        tally_vouchers = preflight.get("vouchers") or []
+        for candidate in clean_batch_candidates:
+            if candidate["invoice_id"] in outside_period_ids:
+                continue
+            if set(_required_ledgers(candidate)) & unavailable_master_names:
+                continue
+            if not _voucher_balance(candidate)["balanced"]:
+                continue
+            if existing_mappings.get(_key(company["gstin"], candidate, batch.company_scope_id or scope_id)):
+                continue
+            if find_voucher(tally_vouchers, candidate):
+                continue
+            rate_ok = True
+            normalized = []
+            for allocation in candidate.get("rate_allocations") or []:
+                ledger_name = allocation.get("account_ledger") or allocation.get("sales_ledger")
+                master_rate = verified_master_gst_rates.get(normalize_ledger_key(ledger_name))
+                if master_rate is None:
+                    continue
+                if abs(money(master_rate) - money(allocation["gst_rate"])) > money("0.01"):
+                    rate_ok = False
+                    break
+                normalized.append((allocation, str(master_rate)))
+            if not rate_ok:
+                continue  # reported by the per-voucher path with its detailed error
+            for allocation, rate in normalized:
+                allocation["gst_rate"] = rate
+            prepass_items.append(candidate)
+        if prepass_items:
+            prepass_started = time.perf_counter()
+            prepass_ambiguous = []
+            stop_sending = False
+            for chunk_number, (batch_items, batch_payload) in enumerate(iter_voucher_batches(
+                    prepass_items, target_name, required_period,
+                    batch_size=getattr(settings, "TALLY_IMPORT_BATCH_SIZE", 500),
+                    max_xml_bytes=getattr(settings, "TALLY_IMPORT_MAX_XML_BYTES", 8 * 1024 * 1024)), start=1):
+                if stop_sending:
+                    break  # never send after an unresolved chunk; the rest take the per-voucher path
+                if should_pause_callback and should_pause_callback():
+                    paused_in_prepass = True
+                    break
+                logger.info("TALLY SEND START batch_id=%s chunk_number=%s voucher_count=%s (hybrid)",
+                            batch.id, chunk_number, len(batch_items))
+                response = client.import_data_batch(batch_payload)
+                complete = batch_response_is_complete(response, len(batch_items))
+                note = "" if complete else (
+                    f"Tally's batch response was not a clean count (created={response.created} altered={response.altered} "
+                    f"errors={response.errors} ignored={response.ignored} exceptions={response.exceptions} "
+                    f"cancelled={response.cancelled}); each voucher was resolved by read-back instead.")
+                if not complete:
+                    stop_sending = True
+                _persist_confirmed_batch(
+                    client, batch, batch_items, response, target_name,
+                    lambda v: _key(company["gstin"], v, batch.company_scope_id or scope_id),
+                    invoices_by_id, results, note=note)
+                prepass_ids.update(v["invoice_id"] for v in batch_items)
+                if progress_callback:
+                    try:
+                        progress_callback(len(prepass_ids), total_eligible_vouchers, results, "")
+                    except Exception:
+                        logger.exception("Tally import progress callback failed (non-fatal)")
+            for voucher in prepass_ambiguous:
+                reason = "Tally returned an ambiguous batch response; verify in Tally before retrying."
+                _update_registry_from_result(batch, voucher, "Unknown / Verify Before Retry", reason,
+                                             error_code="TALLY_BATCH_RESPONSE_AMBIGUOUS", invoices_by_id=invoices_by_id)
+                results.append({"invoice_no": voucher["invoice_number"], "date": voucher["invoice_date"],
+                                "party": voucher["party"]["name"], "gstin": voucher["party"]["gstin"],
+                                "voucher_type": voucher.get("voucher_type", "Sales"),
+                                "status": "Unknown / Verify Before Retry", "reason": reason, "voucher_identifier": ""})
+                prepass_ids.add(voucher["invoice_id"])
+            logger.info("IMPORT PERFORMANCE hybrid vouchers=%s ambiguous=%s total_ms=%.1f",
+                        len(prepass_items), len(prepass_ambiguous), (time.perf_counter() - prepass_started) * 1000)
+    paused = paused or paused_in_prepass
+    attempted += len(prepass_ids)
     for voucher_index, voucher in enumerate(vouchers):
         # Checked before any Tally I/O for this voucher -- so a pause never
         # interrupts a write already in flight, only ever stops the loop
@@ -4464,6 +4677,8 @@ def import_batch(batch, client=None, progress_callback=None, should_pause_callba
         if should_pause_callback and should_pause_callback():
             paused = True
             break
+        if voucher.get("invoice_id") in prepass_ids:
+            continue  # already written and recorded by the hybrid batch pre-pass
         # Job heartbeat/progress only -- never touches what gets sent to Tally
         # or how a voucher is classified. Called once per voucher, before any
         # Tally I/O for it, so a stuck/slow Tally call still keeps the job's

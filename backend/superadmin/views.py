@@ -740,6 +740,37 @@ class ProductLicenseChangeTallySerialView(APIView):
         return Response(ProductLicenseSerializer(license_obj).data)
 
 
+class ProductLicenseTransferOwnerView(APIView):
+    """Explicit, audited Superadmin-only move of a product license to another
+    account. Existing device authorizations are revoked, so the new owner's
+    device must be approved through the normal activation workflow."""
+    permission_classes = [IsSuperAdmin]
+
+    @transaction.atomic
+    def post(self, request, license_id):
+        license_obj = get_object_or_404(ProductLicense.objects.select_for_update(), pk=license_id)
+        new_owner = get_object_or_404(User, pk=request.data.get("new_customer_id"))
+        reason = str(request.data.get("reason", "")).strip()
+        if not reason:
+            return Response({"detail": "reason is required."}, status=400)
+        if license_obj.customer_id == new_owner.id:
+            return Response({"detail": "License already belongs to this account."}, status=400)
+        if license_obj.status == ProductLicense.REVOKED:
+            return Response({"detail": "A revoked license cannot be transferred."}, status=400)
+        old_owner = license_obj.customer
+        license_obj.customer = new_owner
+        license_obj.save(update_fields=["customer", "updated_at"])
+        revoked = list(license_obj.licensed_devices.filter(status=LicensedDevice.ACTIVE).values_list("device_fingerprint", flat=True))
+        license_obj.licensed_devices.filter(status=LicensedDevice.ACTIVE).update(status=LicensedDevice.REVOKED, updated_at=timezone.now())
+        record_license_audit(
+            license_obj, "LICENSE_OWNER_TRANSFERRED",
+            old_value={"customer_id": old_owner.id, "customer": old_owner.get_username()},
+            new_value={"customer_id": new_owner.id, "customer": new_owner.get_username(),
+                       "reason": reason, "devices_revoked": revoked},
+            ip_address=client_ip(request), created_by=request.user)
+        return Response(ProductLicenseSerializer(license_obj).data)
+
+
 class ProductLicenseDeviceRevokeView(APIView):
     permission_classes = [IsSuperAdmin]
 

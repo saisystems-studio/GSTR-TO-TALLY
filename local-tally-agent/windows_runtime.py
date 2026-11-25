@@ -40,12 +40,12 @@ def unprotect(data):
 
 
 @contextmanager
-def single_instance():
+def single_instance(name='Local\\GSTR2TallyConnector'):
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
     kernel.CreateMutexW.restype = wintypes.HANDLE
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-    handle = kernel.CreateMutexW(None, False, 'Local\\GSTR2TallyConnector')
+    handle = kernel.CreateMutexW(None, False, name)
     if not handle:
         raise ctypes.WinError(ctypes.get_last_error())
     already_running = ctypes.get_last_error() == 183

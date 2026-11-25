@@ -250,7 +250,7 @@ class GSTCompanyImportSummary(models.Model):
     first_tally_import_at = models.DateTimeField(null=True, blank=True)
     last_tally_import_at = models.DateTimeField(null=True, blank=True)
     last_retry_at = models.DateTimeField(null=True, blank=True)
-    import_status = models.CharField(max_length=30, default="PENDING")
+    import_status = models.CharField(max_length=40, default="PENDING")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -395,7 +395,7 @@ class TallyVoucherMapping(models.Model):
     party_gstin = models.CharField(max_length=15, blank=True)
     tally_company = models.CharField(max_length=255)
     tally_voucher_identifier = models.CharField(max_length=255, blank=True)
-    import_status = models.CharField(max_length=30)
+    import_status = models.CharField(max_length=40)
     raw_response = models.TextField(blank=True)
     error_message = models.TextField(blank=True)
     imported_at = models.DateTimeField(null=True, blank=True)
@@ -423,7 +423,7 @@ class GSTTallyVoucherRegistry(models.Model):
                                        null=True, blank=True, on_delete=models.SET_NULL)
     latest_invoice = models.ForeignKey(GSTInvoice, related_name="voucher_registry_entries",
                                        null=True, blank=True, on_delete=models.SET_NULL)
-    import_status = models.CharField(max_length=30, default="PENDING")
+    import_status = models.CharField(max_length=40, default="PENDING")
     tally_created = models.BooleanField(default=False)
     tally_altered = models.BooleanField(default=False)
     tally_voucher_identifier = models.CharField(max_length=255, blank=True)
@@ -593,3 +593,47 @@ class ConnectorEnrollment(models.Model):
 
     class Meta:
         db_table = "connector_enrollment_tbl"
+
+
+class DeviceTransfer(models.Model):
+    """Audit history of every self-service device transfer attempt."""
+    SUCCESS = "SUCCESS"
+    AUTH_FAILED = "AUTH_FAILED"
+    CANCELLED = "CANCELLED"
+    REJECTED = "REJECTED"
+    license = models.ForeignKey(ProductLicense, related_name="device_transfers", on_delete=models.CASCADE)
+    customer = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="device_transfers", on_delete=models.CASCADE)
+    result = models.CharField(max_length=20)
+    reason = models.CharField(max_length=64, blank=True)
+    tally_serial = models.CharField(max_length=64, blank=True)
+    old_device_fingerprint = models.CharField(max_length=128, blank=True)
+    old_device_name = models.CharField(max_length=255, blank=True)
+    new_device_fingerprint = models.CharField(max_length=128, blank=True)
+    new_device_name = models.CharField(max_length=255, blank=True)
+    ip_address = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "device_transfer_tbl"
+        indexes = [models.Index(fields=["customer", "created_at"], name="dev_transfer_cust_idx")]
+
+
+class NexusOutboxEvent(models.Model):
+    """Transactional outbox: written in the same transaction as the change it
+    describes, delivered to Nexus afterwards with retry."""
+    PENDING = "PENDING"
+    SENT = "SENT"
+    FAILED = "FAILED"
+    event_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    event_type = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
+    status = models.CharField(max_length=10, default=PENDING)
+    attempts = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    last_error = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "nexus_outbox_tbl"
+        indexes = [models.Index(fields=["status", "next_attempt_at"], name="nexus_outbox_due_idx")]
